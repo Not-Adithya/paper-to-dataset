@@ -13,11 +13,21 @@
     <input type="file" id="pdfFile" accept="application/pdf">
   </label>
 
-  <label>API key (stays in your browser)
+  <label>API key (stays in your browser, never saved)
     <input type="password" id="apiKey" autocomplete="off">
   </label>
 
-  <button id="runBtn">Run</button>
+  <label>Model
+    <input type="text" id="modelName" value="gemini-2.5-flash">
+  </label>
+
+  <label>Chunk number to test
+    <input type="number" id="chunkNo" value="3" min="1">
+  </label>
+
+  <button id="runBtn">Run (extract + chunk)</button>
+  <button id="testBtn">Test 1 chunk</button>
+  <button id="listBtn">List models</button>
 
   <pre id="output">Waiting for a file...</pre>
 
