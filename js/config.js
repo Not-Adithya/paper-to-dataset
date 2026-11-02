@@ -1,5 +1,6 @@
 export const CONFIG = {
   maxChunkTokens: 1000,
+  minChunkTokens: 150,
   pairsPerChunk: 3,
   model: 'TBD',
   promptVersion: 'v1',
