@@ -1,3 +1,4 @@
+// js/ app.js
 import { CONFIG } from './config.js';
 import { extractPdf } from './extract.js';
 import { cleanAndSection } from './clean.js';
