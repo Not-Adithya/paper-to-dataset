@@ -21,18 +21,28 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-// Temporary display for Step 3: shows [fontSize] before each line
-function renderExtracted(extracted) {
-  const totalLines = extracted.pages.reduce((n, p) => n + p.lines.length, 0);
-  let text = `${extracted.paperId}: ${extracted.pages.length} pages, ${totalLines} lines\n\n`;
-  for (const page of extracted.pages) {
-    text += `===== Page ${page.pageNumber} =====\n`;
-    for (const line of page.lines) {
-      text += `[${line.fontSize}] ${line.text}\n`;
-    }
-    text += '\n';
+// Temporary display for Step 4
+function renderCleaned(c) {
+  const d = c.debug;
+  let t = `TITLE: ${c.title || '(not found)'}\n`;
+  t += `Body font: ${d.bodyFontSize}pt | heading threshold: ${d.headingMin.toFixed(1)}pt\n`;
+  t += `Lines in: ${d.linesIn} | kept: ${d.linesKept}\n`;
+  t += `Stopped at: ${d.stoppedAt || '(no references heading found)'}\n\n`;
+
+  t += 'DROPPED (count + examples):\n';
+  for (const [kind, n] of Object.entries(d.stats)) {
+    t += `  ${kind}: ${n}\n`;
+    for (const s of d.samples[kind]) t += `      - ${s.slice(0, 90)}\n`;
   }
-  return text;
+  t += `Dropped sections: ${d.droppedSections.join(' | ') || '(none)'}\n\n`;
+
+  t += `SECTIONS KEPT: ${c.sections.length}\n`;
+  c.sections.forEach((s, i) => {
+    t += `  ${String(i + 1).padStart(2)}. ${'  '.repeat(s.level - 1)}${s.title}  (${s.text.length} chars)\n`;
+  });
+  t += '\n' + '='.repeat(60) + '\n\n';
+  for (const s of c.sections) t += `## ${s.title}\n${s.text}\n\n`;
+  return t;
 }
 
 runBtn.addEventListener('click', async () => {
@@ -41,11 +51,13 @@ runBtn.addEventListener('click', async () => {
     return;
   }
   runBtn.disabled = true;
-  output.textContent = 'Extracting...';
+  output.textContent = 'Working...';
   try {
     const extracted = await extractPdf(selectedFile);
+    const cleaned = cleanAndSection(extracted, CONFIG.clean);
     console.log('Extracted:', extracted);
-    output.textContent = renderExtracted(extracted);
+    console.log('Cleaned:', cleaned);
+    output.textContent = renderCleaned(cleaned);
   } catch (err) {
     console.error(err);
     output.textContent = 'Error: ' + err.message;
