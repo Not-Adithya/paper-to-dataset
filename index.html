@@ -4,9 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paper to Dataset</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <h1>Paper to Dataset</h1>
-  <p>Step 1 works: hosting is live.</p>
+
+  <label>Research paper (PDF)
+    <input type="file" id="pdfFile" accept="application/pdf">
+  </label>
+
+  <label>API key (stays in your browser)
+    <input type="password" id="apiKey" autocomplete="off">
+  </label>
+
+  <button id="runBtn">Run</button>
+
+  <pre id="output">Waiting for a file...</pre>
+
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
