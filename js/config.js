@@ -5,7 +5,7 @@ export const CONFIG = {
   schemaVersion: 1,
 
   // LLM (Gemini). If the model name 404s, use the "List models" button on the page.
-  model: 'gemini-2.5-flash',
+  model: 'gemini-3.8-flash',
   temperature: 0.3,
   maxOutputTokens: 8192,
   maxRetries: 4,
