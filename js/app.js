@@ -21,27 +21,29 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-// Temporary display for Step 4
-function renderCleaned(c) {
-  const d = c.debug;
-  let t = `TITLE: ${c.title || '(not found)'}\n`;
-  t += `Body font: ${d.bodyFontSize}pt | heading threshold: ${d.headingMin.toFixed(1)}pt\n`;
-  t += `Lines in: ${d.linesIn} | kept: ${d.linesKept}\n`;
-  t += `Stopped at: ${d.stoppedAt || '(no references heading found)'}\n\n`;
+// Temporary display for Step 5
+function renderChunks(cleaned, chunks) {
+  const toks = chunks.map((c) => c.tokens);
+  const avg = Math.round(toks.reduce((a, b) => a + b, 0) / toks.length);
+  const over = chunks.filter((c) => c.tokens > CONFIG.maxChunkTokens).length;
+  const under = chunks.filter((c) => c.tokens < CONFIG.minChunkTokens).length;
+  const midSentence = chunks.filter((c) => !/[.!?]["”’)\]]?$/.test(c.text.trim())).length;
 
-  t += 'DROPPED (count + examples):\n';
-  for (const [kind, n] of Object.entries(d.stats)) {
-    t += `  ${kind}: ${n}\n`;
-    for (const s of d.samples[kind]) t += `      - ${s.slice(0, 90)}\n`;
+  let t = `${cleaned.title}\n`;
+  t += `Chunks: ${chunks.length} | tokens: min ${Math.min(...toks)}, max ${Math.max(...toks)}, avg ${avg}\n`;
+  t += `Over limit: ${over} | under minimum: ${under} | not ending on a sentence end: ${midSentence}\n\n`;
+
+  for (const c of chunks) {
+    t += `${c.id}  ${String(c.tokens).padStart(4)} tok  ${c.sectionPath}`;
+    if (c.ofParts > 1) t += `  [part ${c.part}/${c.ofParts}]`;
+    if (c.mergedSections.length) t += `  (+merged: ${c.mergedSections.join('; ')})`;
+    t += '\n';
   }
-  t += `Dropped sections: ${d.droppedSections.join(' | ') || '(none)'}\n\n`;
 
-  t += `SECTIONS KEPT: ${c.sections.length}\n`;
-  c.sections.forEach((s, i) => {
-    t += `  ${String(i + 1).padStart(2)}. ${'  '.repeat(s.level - 1)}${s.title}  (${s.text.length} chars)\n`;
-  });
   t += '\n' + '='.repeat(60) + '\n\n';
-  for (const s of c.sections) t += `## ${s.title}\n${s.text}\n\n`;
+  for (const c of chunks) {
+    t += `----- ${c.id} | ${c.sectionPath} | ${c.tokens} tok -----\n${c.text}\n\n`;
+  }
   return t;
 }
 
@@ -55,9 +57,10 @@ runBtn.addEventListener('click', async () => {
   try {
     const extracted = await extractPdf(selectedFile);
     const cleaned = cleanAndSection(extracted, CONFIG.clean);
-    console.log('Extracted:', extracted);
+    const chunks = chunkSections(cleaned, CONFIG);
     console.log('Cleaned:', cleaned);
-    output.textContent = renderCleaned(cleaned);
+    console.log('Chunks:', chunks);
+    output.textContent = renderChunks(cleaned, chunks);
   } catch (err) {
     console.error(err);
     output.textContent = 'Error: ' + err.message;
