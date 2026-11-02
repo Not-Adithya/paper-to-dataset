@@ -21,10 +21,35 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-runBtn.addEventListener('click', () => {
+// Temporary display for Step 3: shows [fontSize] before each line
+function renderExtracted(extracted) {
+  const totalLines = extracted.pages.reduce((n, p) => n + p.lines.length, 0);
+  let text = `${extracted.paperId}: ${extracted.pages.length} pages, ${totalLines} lines\n\n`;
+  for (const page of extracted.pages) {
+    text += `===== Page ${page.pageNumber} =====\n`;
+    for (const line of page.lines) {
+      text += `[${line.fontSize}] ${line.text}\n`;
+    }
+    text += '\n';
+  }
+  return text;
+}
+
+runBtn.addEventListener('click', async () => {
   if (!selectedFile) {
     output.textContent = 'Choose a PDF first.';
     return;
   }
-  console.log('Run clicked (pipeline not wired yet)');
+  runBtn.disabled = true;
+  output.textContent = 'Extracting...';
+  try {
+    const extracted = await extractPdf(selectedFile);
+    console.log('Extracted:', extracted);
+    output.textContent = renderExtracted(extracted);
+  } catch (err) {
+    console.error(err);
+    output.textContent = 'Error: ' + err.message;
+  } finally {
+    runBtn.disabled = false;
+  }
 });
