@@ -7,7 +7,7 @@ export const CONFIG = {
   // LLM (Gemini). If the model name 404s, use the "List models" button on the page.
   model: 'gemini-3.7-flash',
   temperature: 0.3,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 1024,
   maxRetries: 4,
   retryBaseDelayMs: 4000,
 
