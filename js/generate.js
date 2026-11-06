@@ -29,24 +29,60 @@ async function errorMessage(res) {
   }
 }
 
-// POST with retry on 429 / 5xx (exponential backoff)
-async function postWithRetry(url, apiKey, body, cfg) {
-  let lastErr;
-  for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) return res.json();
+// fetch with a timeout
+async function fetchWithTimeout(url, options, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-    const msg = await errorMessage(res);
-    lastErr = new Error(`API ${res.status}: ${msg}`);
-    if ((res.status === 429 || res.status >= 500) && attempt < cfg.maxRetries) {
-      await sleep(cfg.retryBaseDelayMs * 2 ** attempt);
-      continue;
+// POST with retry on 429 / 5xx / timeout (exponential backoff). Reports each retry via cfg.onStatus.
+async function postWithRetry(url, apiKey, body, cfg) {
+  const say = (m) => cfg.onStatus && cfg.onStatus(m);
+  const timeoutMs = cfg.requestTimeoutMs || 60000;
+  let lastErr;
+
+  for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
+    let retryable = false;
+    let reason = '';
+    const started = Date.now();
+
+    try {
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify(body),
+        },
+        timeoutMs
+      );
+      if (res.ok) return res.json();
+
+      const msg = await errorMessage(res);
+      lastErr = new Error(`API ${res.status}: ${msg}`);
+      retryable = res.status === 429 || res.status >= 500;
+      reason = res.status === 429 ? 'rate limited (429)' : `server error (${res.status})`;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        lastErr = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+        reason = 'timed out';
+      } else {
+        lastErr = new Error(`Network error: ${err.message}`);
+        reason = 'network error';
+      }
+      retryable = true;
     }
-    throw lastErr;
+
+    if (!retryable || attempt === cfg.maxRetries) throw lastErr;
+
+    const wait = cfg.retryBaseDelayMs * 2 ** attempt;
+    say(`${reason} after ${Math.round((Date.now() - started) / 1000)}s. Waiting ${Math.round(wait / 1000)}s, then retry ${attempt + 1}/${cfg.maxRetries}`);
+    await sleep(wait);
   }
   throw lastErr;
 }
