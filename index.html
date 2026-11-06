@@ -17,17 +17,44 @@
     <input type="password" id="apiKey" autocomplete="off">
   </label>
 
-  <label>Model
-    <input type="text" id="modelName" value="gemini-2.5-flash">
-  </label>
+  <div class="row">
+    <label>Model
+      <input type="text" id="modelName">
+    </label>
+    <label>Number of pairs wanted
+      <input type="number" id="targetPairs" min="1" max="1000">
+    </label>
+    <label>Delay between requests (seconds)
+      <input type="number" id="delaySec" min="0" step="0.5">
+    </label>
+  </div>
 
-  <label>Chunk number to test
-    <input type="number" id="chunkNo" value="3" min="1">
-  </label>
+  <div id="plan"></div>
 
-  <button id="runBtn">Run (extract + chunk)</button>
-  <button id="testBtn">Test 1 chunk</button>
-  <button id="listBtn">List models</button>
+  <div>
+    <button id="generateBtn">Generate dataset</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="downloadBtn" disabled>Download JSON</button>
+    <button id="downloadJsonlBtn" disabled>Download JSONL</button>
+  </div>
+  <label class="check"><input type="checkbox" id="includeMeta" checked> Include metadata (task type, section, model, prompt version)</label>
+
+  <div id="progressWrap" hidden>
+    <div class="bar"><div id="barFill"></div></div>
+    <div id="progressText"></div>
+  </div>
+
+  <details>
+    <summary>Debug tools</summary>
+    <div class="row">
+      <label>Chunk number to test
+        <input type="number" id="chunkNo" value="3" min="1">
+      </label>
+    </div>
+    <button id="previewBtn">Preview chunks</button>
+    <button id="testBtn">Test 1 chunk</button>
+    <button id="listBtn">List models</button>
+  </details>
 
   <pre id="output">Waiting for a file...</pre>
 
