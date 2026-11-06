@@ -1,24 +1,23 @@
 export const CONFIG = {
   maxChunkTokens: 1000,
   minChunkTokens: 150,
-  pairsPerChunk: 3,          // fallback only; each run sets this per chunk
-  schemaVersion: 1,
+  schemaVersion: 2,
 
-  // LLM (Gemini). The Model box on the page overrides this.
+  // Stage 1 (rule-based)
+  rules: {
+    minSectionChars: 300,   // sections shorter than this get no pair
+    maxOutputChars: 5000,   // longer sections are split into parts
+  },
+
+  // Stage 2 settings (used in the next step)
+  pairsPerChunk: 3,
   model: 'gemini-3.8-flash',
   temperature: 0.3,
   maxOutputTokens: 8192,
   maxRetries: 3,
+  retryBaseDelayMs: 10000,
   requestTimeoutMs: 60000,
-  retryBaseDelayMs: 4000,
-
-  // Dataset run
-  defaultTargetPairs: 60,
-  maxPairsPerChunk: 8,       // quality cap per chunk
-  overRequestFactor: 1.3,    // ask for 30% extra to survive validation
-  defaultDelaySeconds: 5,    // pause between requests (free-tier friendly)
-  assumedRequestSec: 8,      // used only for the time estimate before the first result
-  checkNumbers: true,        // reject pairs whose output has numbers not in the source
+  fallbackModels: [],
 
   clean: {
     smallFontRatio: 0.8,
