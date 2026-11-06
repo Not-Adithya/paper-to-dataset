@@ -7,56 +7,52 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Paper to Dataset</h1>
+  <header>
+    <h1>Paper to Dataset</h1>
+    <p class="sub">Turn a research paper into input/output training pairs.</p>
+  </header>
 
-  <label>Research paper (PDF)
+  <div id="alert" class="alert" hidden></div>
+
+  <section class="panel">
+    <h2><span class="num">1</span> Paper <span id="badge1" class="badge wait">Waiting</span></h2>
     <input type="file" id="pdfFile" accept="application/pdf">
-  </label>
+    <p id="paperInfo" class="info"></p>
+  </section>
 
-  <label>API key (stays in your browser, never saved)
-    <input type="password" id="apiKey" autocomplete="off">
-  </label>
+  <section class="panel">
+    <h2><span class="num">2</span> Stage 1: Rule-based pairs <span id="badge2" class="badge wait">Locked</span></h2>
+    <p class="hint">Instant, free, no AI. Every answer is the paper's own text, so nothing is invented.</p>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="ruleAbstract" checked> Abstract summary</label>
+      <label class="check"><input type="checkbox" id="ruleSections" checked> One pair per section</label>
+      <label class="check"><input type="checkbox" id="ruleAbbr" checked> Abbreviation definitions</label>
+    </div>
+    <div class="actions">
+      <button id="stage1Btn" class="primary" disabled>Generate stage 1</button>
+      <button id="dl1Json" disabled>Download JSON</button>
+      <button id="dl1Jsonl" disabled>Download JSONL</button>
+    </div>
+    <label class="check"><input type="checkbox" id="includeMeta"> Include metadata in the file (stage, rule, section)</label>
+    <div id="stage1Summary" class="info"></div>
+    <div id="stage1Preview"></div>
+  </section>
 
-  <div class="row">
-    <label>Model
-      <input type="text" id="modelName">
-    </label>
-    <label>Number of pairs wanted
-      <input type="number" id="targetPairs" min="1" max="1000">
-    </label>
-    <label>Delay between requests (seconds)
-      <input type="number" id="delaySec" min="0" step="0.5">
-    </label>
-  </div>
+  <section class="panel locked">
+    <h2><span class="num">3</span> Stage 2: AI-written Q&amp;A <span class="badge wait">Next step</span></h2>
+    <p class="hint">Coming next: connect any LLM (OpenAI-compatible services, Gemini, or local Ollama), see "Connected to ..." with live ETA, and generate fewer, sharper pairs with a verification pass.</p>
+  </section>
 
-  <div id="plan"></div>
-
-  <div>
-    <button id="generateBtn">Generate dataset</button>
-    <button id="stopBtn" disabled>Stop</button>
-    <button id="downloadBtn" disabled>Download JSON</button>
-    <button id="downloadJsonlBtn" disabled>Download JSONL</button>
-  </div>
-  <label class="check"><input type="checkbox" id="includeMeta" checked> Include metadata (task type, section, model, prompt version)</label>
-
-  <div id="progressWrap" hidden>
-    <div class="bar"><div id="barFill"></div></div>
-    <div id="progressText"></div>
-  </div>
+  <section class="panel locked">
+    <h2><span class="num">4</span> Combine <span class="badge wait">Later</span></h2>
+    <p class="hint">Merge the stage 1 and stage 2 files into one deduplicated dataset.</p>
+  </section>
 
   <details>
     <summary>Debug tools</summary>
-    <div class="row">
-      <label>Chunk number to test
-        <input type="number" id="chunkNo" value="3" min="1">
-      </label>
-    </div>
-    <button id="previewBtn">Preview chunks</button>
-    <button id="testBtn">Test 1 chunk</button>
-    <button id="listBtn">List models</button>
+    <button id="previewBtn" disabled>List chunks</button>
+    <pre id="debugOut"></pre>
   </details>
-
-  <pre id="output">Waiting for a file...</pre>
 
   <script type="module" src="js/app.js"></script>
 </body>
