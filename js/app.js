@@ -2,81 +2,46 @@ import { CONFIG } from './config.js';
 import { extractPdf } from './extract.js';
 import { cleanAndSection } from './clean.js';
 import { chunkSections } from './chunk.js';
-import { generatePairs, listModels } from './generate.js';
-import { quoteInChunk } from './validate.js';
-import { runPipeline, allocate } from './run.js';
+import { generateRulePairs } from './rules.js';
 import { toJson, toJsonl } from './export.js';
 
 const $ = (id) => document.getElementById(id);
 const fileInput = $('pdfFile');
-const apiKeyInput = $('apiKey');
-const modelInput = $('modelName');
-const targetInput = $('targetPairs');
-const delayInput = $('delaySec');
-const planEl = $('plan');
-const generateBtn = $('generateBtn');
-const stopBtn = $('stopBtn');
-const downloadBtn = $('downloadBtn');
-const downloadJsonlBtn = $('downloadJsonlBtn');
+const badge1 = $('badge1');
+const badge2 = $('badge2');
+const paperInfo = $('paperInfo');
+const alertBox = $('alert');
+const ruleAbstract = $('ruleAbstract');
+const ruleSections = $('ruleSections');
+const ruleAbbr = $('ruleAbbr');
+const stage1Btn = $('stage1Btn');
+const dl1Json = $('dl1Json');
+const dl1Jsonl = $('dl1Jsonl');
 const includeMeta = $('includeMeta');
-const progressWrap = $('progressWrap');
-const barFill = $('barFill');
-const progressText = $('progressText');
-const chunkNoInput = $('chunkNo');
+const stage1Summary = $('stage1Summary');
+const stage1Preview = $('stage1Preview');
 const previewBtn = $('previewBtn');
-const testBtn = $('testBtn');
-const listBtn = $('listBtn');
-const output = $('output');
+const debugOut = $('debugOut');
 
-modelInput.value = CONFIG.model;
-targetInput.value = CONFIG.defaultTargetPairs;
-delayInput.value = CONFIG.defaultDelaySeconds;
+let prepared = null;   // { cleaned, chunks }
+let pairs1 = null;
+let prepToken = 0;
 
-let selectedFile = null;
-let cache = null;          // { cleaned, chunks }
-let finalPairs = null;
-let running = false;
-let stopRequested = false;
-let lastProgress = null;
-let lastUpdateAt = 0;
-let timer = null;
-
-// ---------- helpers ----------
-const fmt = (ms) => {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-};
-const readTarget = () => {
-  const n = parseInt(targetInput.value, 10);
-  return Number.isFinite(n) ? Math.min(1000, Math.max(1, n)) : CONFIG.defaultTargetPairs;
-};
-const readDelay = () => {
-  const n = parseFloat(delayInput.value);
-  return Number.isFinite(n) ? Math.max(0, n) : CONFIG.defaultDelaySeconds;
-};
-const log = (line) => {
-  output.textContent += line + '\n';
-  output.scrollTop = output.scrollHeight;
-};
-
-function setBusy(busy) {
-  running = busy;
-  generateBtn.disabled = busy;
-  previewBtn.disabled = busy;
-  testBtn.disabled = busy;
-  listBtn.disabled = busy;
-  stopBtn.disabled = !busy;
-  if (!busy) stopBtn.textContent = 'Stop';
+// ---------- small UI helpers ----------
+function setBadge(el, text, kind) {
+  el.textContent = text;
+  el.className = 'badge ' + kind;
 }
+function showAlert(msg) { alertBox.textContent = msg; alertBox.hidden = false; }
+function hideAlert() { alertBox.hidden = true; }
 
-function setDownloads(enabled) {
-  downloadBtn.disabled = !enabled;
-  downloadJsonlBtn.disabled = !enabled;
+function setDownloads(on) {
+  dl1Json.disabled = !on;
+  dl1Jsonl.disabled = !on;
 }
 
 function download(name, text, mime) {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -86,207 +51,138 @@ function download(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function baseName() {
-  const id = (cache && cache.cleaned.paperId) || 'paper';
-  return id.replace(/[^\w.-]+/g, '_');
-}
+const baseName = () => ((prepared && prepared.cleaned.paperId) || 'paper').replace(/[^\w.-]+/g, '_');
 
-function updatePlan() {
-  if (!cache) { planEl.textContent = ''; return; }
-  const target = readTarget();
-  const delay = readDelay();
-  const alloc = allocate(cache.chunks, target, CONFIG.maxPairsPerChunk);
-  const jobs = alloc.filter((a) => a > 0).length;
-  const cap = cache.chunks.length * CONFIG.maxPairsPerChunk;
-  const estMs = jobs * (delay + CONFIG.assumedRequestSec) * 1000;
-  let t = `Plan: ${target} pairs from ${jobs} of ${cache.chunks.length} chunks (${jobs} API requests), estimated time ~${fmt(estMs)}.`;
-  if (target > cap) t += ` Target is above the maximum for this paper (${cap}); it will be capped.`;
-  planEl.textContent = t;
-}
+function renderPreview(pairs) {
+  stage1Preview.textContent = '';
+  pairs.forEach((p, i) => {
+    const d = document.createElement('details');
+    d.className = 'pair';
+    d.open = i === 0;
 
-async function getChunks() {
-  if (!selectedFile) throw new Error('Choose a PDF first.');
-  if (!cache) {
-    output.textContent = 'Extracting and chunking...';
-    const extracted = await extractPdf(selectedFile);
-    const cleaned = cleanAndSection(extracted, CONFIG.clean);
-    cache = { cleaned, chunks: chunkSections(cleaned, CONFIG) };
-    updatePlan();
-  }
-  return cache;
-}
+    const s = document.createElement('summary');
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = p.meta.rule;
+    s.append(tag, document.createTextNode(p.input));
 
-// ---------- progress display ----------
-function renderProgress() {
-  const p = lastProgress;
-  if (!p) return;
-  const now = Date.now();
-  const elapsed = (p.endedAt || now) - p.startedAt;
-  const remaining = Math.max(0, p.total - p.done);
-  const per = p.avgJobMs || readDelay() * 1000 + CONFIG.assumedRequestSec * 1000;
-  const eta = p.finished ? 0 : Math.max(0, remaining * per - (now - lastUpdateAt));
-  const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
-  barFill.style.width = pct + '%';
-  progressText.textContent =
-    `Chunk ${p.done}/${p.total} (${pct}%) | valid pairs so far: ${p.valid} (target ${p.target}) | ` +
-    `elapsed ${fmt(elapsed)} | ETA ~${fmt(eta)}\n${p.status}`;
-}
+    const body = document.createElement('div');
+    body.className = 'pair-body';
+    const label = document.createElement('strong');
+    label.textContent = 'Output';
+    const out = document.createElement('p');
+    out.textContent = p.output;
+    body.append(label, out);
 
-function summaryText(result) {
-  const s = result.summary;
-  let t = '\n' + '='.repeat(60) + '\n';
-  t += s.stopReason ? `STOPPED: ${s.stopReason}\n` : 'DONE\n';
-  t += `Time: ${fmt(s.elapsedMs)} | API requests planned: ${s.requests}\n`;
-  t += `Final pairs: ${s.final} (target ${s.target})\n`;
-  t += `Passed validation: ${s.validBeforeDedupe} | duplicates removed: ${s.duplicatesRemoved} | trimmed to target: ${s.trimmed}\n`;
-  const rej = Object.entries(s.rejected);
-  t += rej.length ? 'Rejected by validation: ' + rej.map(([k, v]) => `${v}x ${k}`).join(', ') + '\n' : 'Rejected by validation: none\n';
-  if (s.failed.length) {
-    t += `Failed chunks (${s.failed.length}):\n`;
-    for (const f of s.failed) t += `  - ${f.chunkId} (${f.section}): ${f.error}\n`;
-  }
-  if (s.final < s.target && !s.stopReason) {
-    t += `Fewer pairs than the target passed validation. Lower the target or try another paper to get more.\n`;
-  }
-  if (s.final > 0) t += 'You can download the file now.\n';
-
-  t += '\nPREVIEW (first 3 pairs):\n\n';
-  result.pairs.slice(0, 3).forEach((p, i) => {
-    t += `--- ${i + 1} [${p.task_type}] ${p.meta.section}\nInstruction: ${p.instruction}\nInput: ${p.input}\nOutput: ${p.output}\n\n`;
+    d.append(s, body);
+    stage1Preview.appendChild(d);
   });
-  return t;
 }
 
-// ---------- events ----------
-fileInput.addEventListener('change', () => {
-  selectedFile = fileInput.files[0] || null;
-  cache = null;
-  finalPairs = null;
+// ---------- step 1: prepare the paper ----------
+function resetAll() {
+  prepared = null;
+  pairs1 = null;
+  hideAlert();
+  paperInfo.textContent = '';
+  stage1Summary.textContent = '';
+  stage1Preview.textContent = '';
+  debugOut.textContent = '';
+  stage1Btn.disabled = true;
+  previewBtn.disabled = true;
   setDownloads(false);
-  progressWrap.hidden = true;
-  planEl.textContent = '';
-  if (selectedFile) output.textContent = `Selected: ${selectedFile.name}`;
+  setBadge(badge2, 'Locked', 'wait');
+}
+
+async function prepare(file, token) {
+  setBadge(badge1, 'Reading PDF...', 'work');
+  try {
+    const extracted = await extractPdf(file);
+    if (token !== prepToken) return;
+    const cleaned = cleanAndSection(extracted, CONFIG.clean);
+    const chunks = chunkSections(cleaned, CONFIG);
+    if (token !== prepToken) return;
+
+    prepared = { cleaned, chunks };
+    paperInfo.textContent =
+      `${cleaned.title || '(title not found)'}\n` +
+      `${extracted.pages.length} pages | ${cleaned.sections.length} sections | ${chunks.length} chunks`;
+
+    if (!cleaned.sections.length) {
+      setBadge(badge1, 'No sections found', 'err');
+      showAlert('No sections were detected in this PDF. It may be scanned (image-only) or use an unusual layout.');
+      return;
+    }
+    setBadge(badge1, 'Ready', 'ok');
+    setBadge(badge2, 'Ready', 'work');
+    stage1Btn.disabled = false;
+    previewBtn.disabled = false;
+  } catch (err) {
+    if (token !== prepToken) return;
+    console.error(err);
+    setBadge(badge1, 'Failed', 'err');
+    showAlert('Could not read this PDF: ' + err.message);
+  }
+}
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  prepToken++;
+  resetAll();
+  if (!file) { setBadge(badge1, 'Waiting', 'wait'); return; }
+  prepare(file, prepToken);
 });
 
-targetInput.addEventListener('input', updatePlan);
-delayInput.addEventListener('input', updatePlan);
-
-generateBtn.addEventListener('click', async () => {
-  if (running) return;
+// ---------- stage 1 ----------
+stage1Btn.addEventListener('click', () => {
+  if (!prepared) return;
+  hideAlert();
   try {
-    const apiKey = apiKeyInput.value.trim();
-    if (!apiKey) throw new Error('Paste your API key first.');
-    const { chunks } = await getChunks();
-    const cfg = { ...CONFIG, model: modelInput.value.trim() || CONFIG.model };
-    const target = readTarget();
-
-    setBusy(true);
-    stopRequested = false;
-    finalPairs = null;
-    setDownloads(false);
-    output.textContent = `Model: ${cfg.model} | target: ${target} pairs | delay: ${readDelay()}s\n(Keep this tab open while it runs.)\n\n`;
-    progressWrap.hidden = false;
-    lastProgress = null;
-    timer = setInterval(renderProgress, 500);
-
-    const result = await runPipeline({
-      chunks,
-      apiKey,
-      cfg,
-      target,
-      delayMs: readDelay() * 1000,
-      shouldStop: () => stopRequested,
-      onLog: log,
-      onProgress: (p) => { lastProgress = p; lastUpdateAt = Date.now(); renderProgress(); },
-    });
-
-    finalPairs = result.pairs;
-    lastProgress = {
-      ...lastProgress,
-      finished: true,
-      endedAt: Date.now(),
-      valid: result.pairs.length,
-      status: result.summary.stopReason ? `Stopped: ${result.summary.stopReason}` : 'Finished.',
+    const opts = {
+      abstract: ruleAbstract.checked,
+      sections: ruleSections.checked,
+      abbreviations: ruleAbbr.checked,
     };
-    renderProgress();
-    log(summaryText(result));
-    setDownloads(finalPairs.length > 0);
+    if (!opts.abstract && !opts.sections && !opts.abbreviations) throw new Error('Tick at least one rule.');
+
+    const res = generateRulePairs(prepared.cleaned, CONFIG, opts);
+    pairs1 = res.pairs;
+    if (!pairs1.length) throw new Error('No pairs were produced for this paper.');
+
+    const by = Object.entries(res.stats.byRule).map(([k, v]) => `${k}: ${v}`).join(' | ');
+    stage1Summary.textContent =
+      `${res.stats.total} pairs generated (${by})` +
+      (res.skipped.length ? `\nSections skipped as too short: ${res.skipped.join('; ')}` : '') +
+      `\nClick a pair below to see its output.`;
+
+    renderPreview(pairs1);
+    setDownloads(true);
+    setBadge(badge2, `Done: ${pairs1.length} pairs`, 'ok');
   } catch (err) {
     console.error(err);
-    log('Error: ' + err.message);
-  } finally {
-    clearInterval(timer);
-    setBusy(false);
+    showAlert(err.message);
   }
 });
 
-stopBtn.addEventListener('click', () => {
-  stopRequested = true;
-  stopBtn.disabled = true;
-  stopBtn.textContent = 'Stopping after current request...';
+dl1Json.addEventListener('click', () => {
+  if (!pairs1) return;
+  download(`${baseName()}_stage1_${pairs1.length}pairs.json`, toJson(pairs1, includeMeta.checked), 'application/json');
 });
 
-downloadBtn.addEventListener('click', () => {
-  if (!finalPairs || !finalPairs.length) return;
-  download(`${baseName()}_dataset_${finalPairs.length}pairs.json`, toJson(finalPairs, includeMeta.checked), 'application/json');
+dl1Jsonl.addEventListener('click', () => {
+  if (!pairs1) return;
+  download(`${baseName()}_stage1_${pairs1.length}pairs.jsonl`, toJsonl(pairs1, includeMeta.checked), 'application/jsonl');
 });
 
-downloadJsonlBtn.addEventListener('click', () => {
-  if (!finalPairs || !finalPairs.length) return;
-  download(`${baseName()}_dataset_${finalPairs.length}pairs.jsonl`, toJsonl(finalPairs, includeMeta.checked), 'application/jsonl');
-});
-
-// ---------- debug tools ----------
-previewBtn.addEventListener('click', async () => {
-  previewBtn.disabled = true;
-  try {
-    const { cleaned, chunks } = await getChunks();
-    let t = `${cleaned.title}\nChunks: ${chunks.length}\n\n`;
-    chunks.forEach((c, i) => {
-      t += `#${i + 1}  ${c.id}  ${String(c.tokens).padStart(4)} tok  ${c.sectionPath}`;
-      if (c.ofParts > 1) t += `  [part ${c.part}/${c.ofParts}]`;
-      t += '\n';
-    });
-    output.textContent = t;
-  } catch (err) {
-    output.textContent = 'Error: ' + err.message;
-  } finally {
-    previewBtn.disabled = false;
-  }
-});
-
-testBtn.addEventListener('click', async () => {
-  testBtn.disabled = true;
-  try {
-    const { chunks } = await getChunks();
-    const n = parseInt(chunkNoInput.value, 10);
-    if (!(n >= 1 && n <= chunks.length)) throw new Error(`Chunk number must be 1 to ${chunks.length}.`);
-    const chunk = chunks[n - 1];
-    const cfg = { ...CONFIG, model: modelInput.value.trim() || CONFIG.model };
-    output.textContent = `Calling ${cfg.model} on chunk #${n}...`;
-    const result = await generatePairs(chunk, apiKeyInput.value.trim(), cfg);
-    let t = `CHUNK #${n}: ${chunk.id} | ${chunk.sectionPath}\nPairs returned: ${result.pairs.length} | finish: ${result.finishReason}\n\n`;
-    result.pairs.forEach((p, i) => {
-      t += `--- Pair ${i + 1} [${p.task_type}] input verbatim: ${quoteInChunk(p.input, chunk.text) ? 'YES' : 'NO'}\n`;
-      t += `Instruction: ${p.instruction}\nInput: ${p.input}\nOutput: ${p.output}\n\n`;
-    });
-    output.textContent = t;
-  } catch (err) {
-    output.textContent = 'Error: ' + err.message;
-  } finally {
-    testBtn.disabled = false;
-  }
-});
-
-listBtn.addEventListener('click', async () => {
-  listBtn.disabled = true;
-  try {
-    output.textContent = 'Fetching models...';
-    const names = await listModels(apiKeyInput.value.trim());
-    output.textContent = 'Models that support generateContent:\n\n' + names.join('\n');
-  } catch (err) {
-    output.textContent = 'Error: ' + err.message;
-  } finally {
-    listBtn.disabled = false;
-  }
+// ---------- debug ----------
+previewBtn.addEventListener('click', () => {
+  if (!prepared) return;
+  const { cleaned, chunks } = prepared;
+  let t = `${cleaned.title}\nChunks: ${chunks.length}\n\n`;
+  chunks.forEach((c, i) => {
+    t += `#${i + 1}  ${String(c.tokens).padStart(4)} tok  ${c.sectionPath}`;
+    if (c.ofParts > 1) t += `  [part ${c.part}/${c.ofParts}]`;
+    t += '\n';
+  });
+  debugOut.textContent = t;
 });
