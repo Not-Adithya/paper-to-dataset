@@ -106,7 +106,7 @@ export async function runPipeline({ chunks, apiKey, cfg, target, delayMs, onProg
     });
 
   async function runJob(job) {
-    const res = await generatePairs(job.chunk, apiKey, { ...cfg, pairsPerChunk: job.ask });
+    const res = await generatePairs(job.chunk, apiKey, { ...cfg, pairsPerChunk: job.ask, onStatus: (m) => { log(`  ! #${job.n}: ${m}`); emit(`#${job.n}/${jobs.length}: ${m}`); } });
     const { valid, rejected } = validatePairs(res.pairs, job.chunk, cfg);
     const reasons = {};
     for (const r of rejected) {
