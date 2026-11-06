@@ -1,45 +1,14 @@
-:root {
-  --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde6; --card: #f7f8fb;
-  --accent: #2d6cdf; --ok: #1a7f4b; --work: #b26a00; --err: #c0392b;
-}
+:root { --bg: #fff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde6; --card: #f7f8fb; --accent: #2d6cdf; --err: #c0392b; }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14171f; --fg: #e8ebf2; --muted: #9aa3b5; --line: #2c3342; --card: #1b2029;
-    --accent: #6b9bff; --ok: #4cc38a; --work: #e0a040; --err: #ff7b6b;
-  }
+  :root { --bg: #14171f; --fg: #e8ebf2; --muted: #9aa3b5; --line: #2c3342; --card: #1b2029; --accent: #6b9bff; --err: #ff7b6b; }
 }
-* { box-sizing: border-box; }
-body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 900px; margin: 1.5rem auto; padding: 0 1rem; line-height: 1.45; }
-header h1 { margin: 0; }
-.sub { color: var(--muted); margin: 0.25rem 0 1.25rem; }
-
-.panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-.panel.locked { opacity: 0.6; }
-.panel h2 { font-size: 1.1rem; margin: 0 0 0.6rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.num { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.85rem; }
-
-.badge { font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.badge.ok { color: var(--ok); border-color: var(--ok); }
-.badge.work { color: var(--work); border-color: var(--work); }
-.badge.err { color: var(--err); border-color: var(--err); }
-
-.hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem; }
-.info { font-size: 0.9rem; white-space: pre-wrap; margin: 0.6rem 0; }
-.checks { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; margin: 0.25rem 0; }
-.actions { margin: 0.6rem 0; }
-
-button { padding: 0.5rem 1.1rem; margin: 0.2rem 0.3rem 0.2rem 0; cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 860px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
+#status { white-space: pre-wrap; color: var(--muted); }
+#status.error { color: var(--err); }
+button { padding: 0.5rem 1.1rem; margin: 0.25rem 0.3rem 0.25rem 0; cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.alert { background: rgba(192, 57, 43, 0.12); border: 1px solid var(--err); color: var(--err); padding: 0.7rem 1rem; border-radius: 8px; margin-bottom: 1rem; white-space: pre-wrap; }
-
-.pair { border: 1px solid var(--line); border-radius: 8px; margin: 0.4rem 0; background: var(--bg); }
+.check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+.pair { border: 1px solid var(--line); border-radius: 8px; margin: 0.4rem 0; background: var(--card); }
 .pair summary { cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.92rem; }
-.pair-body { padding: 0 0.75rem 0.75rem; font-size: 0.88rem; }
-.pair-body p { white-space: pre-wrap; margin: 0.3rem 0 0; max-height: 320px; overflow: auto; }
+.pair p { white-space: pre-wrap; margin: 0; padding: 0 0.75rem 0.75rem; font-size: 0.88rem; max-height: 320px; overflow: auto; }
 .tag { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.5rem; border-radius: 4px; background: var(--accent); color: #fff; margin-right: 0.4rem; text-transform: uppercase; }
-
-details { margin: 1rem 0; }
-pre { background: var(--card); border: 1px solid var(--line); padding: 0.75rem; overflow: auto; white-space: pre-wrap; max-height: 400px; }
