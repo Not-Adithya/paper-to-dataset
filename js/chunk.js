@@ -1,4 +1,3 @@
-// js/ chunk.js
 // Step 5: cleaned paper -> chunks
 // Pure functions. No DOM access.
 // Chunk: { id, paperId, paperTitle, section, sectionPath, part, ofParts, mergedSections, text, tokens }
