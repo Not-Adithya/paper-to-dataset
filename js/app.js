@@ -1,43 +1,23 @@
 import { CONFIG } from './config.js';
 import { extractPdf } from './extract.js';
 import { cleanAndSection } from './clean.js';
-import { chunkSections } from './chunk.js';
 import { generateRulePairs } from './rules.js';
 import { toJson, toJsonl } from './export.js';
 
 const $ = (id) => document.getElementById(id);
 const fileInput = $('pdfFile');
-const badge1 = $('badge1');
-const badge2 = $('badge2');
-const paperInfo = $('paperInfo');
-const alertBox = $('alert');
-const ruleAbstract = $('ruleAbstract');
-const ruleSections = $('ruleSections');
-const ruleAbbr = $('ruleAbbr');
-const stage1Btn = $('stage1Btn');
-const dl1Json = $('dl1Json');
-const dl1Jsonl = $('dl1Jsonl');
+const statusEl = $('status');
+const dlJson = $('dlJson');
+const dlJsonl = $('dlJsonl');
 const includeMeta = $('includeMeta');
-const stage1Summary = $('stage1Summary');
-const stage1Preview = $('stage1Preview');
-const previewBtn = $('previewBtn');
-const debugOut = $('debugOut');
+const preview = $('preview');
 
-let prepared = null;   // { cleaned, chunks }
-let pairs1 = null;
-let prepToken = 0;
+let pairs = null;
+let paperId = 'paper';
 
-// ---------- small UI helpers ----------
-function setBadge(el, text, kind) {
-  el.textContent = text;
-  el.className = 'badge ' + kind;
-}
-function showAlert(msg) { alertBox.textContent = msg; alertBox.hidden = false; }
-function hideAlert() { alertBox.hidden = true; }
-
-function setDownloads(on) {
-  dl1Json.disabled = !on;
-  dl1Jsonl.disabled = !on;
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.className = isError ? 'error' : '';
 }
 
 function download(name, text, mime) {
@@ -51,138 +31,64 @@ function download(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const baseName = () => ((prepared && prepared.cleaned.paperId) || 'paper').replace(/[^\w.-]+/g, '_');
-
-function renderPreview(pairs) {
-  stage1Preview.textContent = '';
-  pairs.forEach((p, i) => {
+function renderPreview(list) {
+  preview.textContent = '';
+  list.forEach((p, i) => {
     const d = document.createElement('details');
     d.className = 'pair';
     d.open = i === 0;
-
     const s = document.createElement('summary');
     const tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = p.meta.rule;
     s.append(tag, document.createTextNode(p.input));
-
-    const body = document.createElement('div');
-    body.className = 'pair-body';
-    const label = document.createElement('strong');
-    label.textContent = 'Output';
     const out = document.createElement('p');
     out.textContent = p.output;
-    body.append(label, out);
-
-    d.append(s, body);
-    stage1Preview.appendChild(d);
+    d.append(s, out);
+    preview.appendChild(d);
   });
 }
 
-// ---------- step 1: prepare the paper ----------
-function resetAll() {
-  prepared = null;
-  pairs1 = null;
-  hideAlert();
-  paperInfo.textContent = '';
-  stage1Summary.textContent = '';
-  stage1Preview.textContent = '';
-  debugOut.textContent = '';
-  stage1Btn.disabled = true;
-  previewBtn.disabled = true;
-  setDownloads(false);
-  setBadge(badge2, 'Locked', 'wait');
-}
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  pairs = null;
+  dlJson.disabled = true;
+  dlJsonl.disabled = true;
+  preview.textContent = '';
+  if (!file) { setStatus(''); return; }
 
-async function prepare(file, token) {
-  setBadge(badge1, 'Reading PDF...', 'work');
+  setStatus('Reading PDF...');
+  const t0 = performance.now();
   try {
     const extracted = await extractPdf(file);
-    if (token !== prepToken) return;
     const cleaned = cleanAndSection(extracted, CONFIG.clean);
-    const chunks = chunkSections(cleaned, CONFIG);
-    if (token !== prepToken) return;
+    if (!cleaned.sections.length) throw new Error('No sections found. The PDF may be scanned (image-only).');
 
-    prepared = { cleaned, chunks };
-    paperInfo.textContent =
-      `${cleaned.title || '(title not found)'}\n` +
-      `${extracted.pages.length} pages | ${cleaned.sections.length} sections | ${chunks.length} chunks`;
+    const res = generateRulePairs(cleaned, CONFIG);
+    if (!res.pairs.length) throw new Error('No pairs were produced for this paper.');
 
-    if (!cleaned.sections.length) {
-      setBadge(badge1, 'No sections found', 'err');
-      showAlert('No sections were detected in this PDF. It may be scanned (image-only) or use an unusual layout.');
-      return;
-    }
-    setBadge(badge1, 'Ready', 'ok');
-    setBadge(badge2, 'Ready', 'work');
-    stage1Btn.disabled = false;
-    previewBtn.disabled = false;
-  } catch (err) {
-    if (token !== prepToken) return;
-    console.error(err);
-    setBadge(badge1, 'Failed', 'err');
-    showAlert('Could not read this PDF: ' + err.message);
-  }
-}
-
-fileInput.addEventListener('change', () => {
-  const file = fileInput.files[0];
-  prepToken++;
-  resetAll();
-  if (!file) { setBadge(badge1, 'Waiting', 'wait'); return; }
-  prepare(file, prepToken);
-});
-
-// ---------- stage 1 ----------
-stage1Btn.addEventListener('click', () => {
-  if (!prepared) return;
-  hideAlert();
-  try {
-    const opts = {
-      abstract: ruleAbstract.checked,
-      sections: ruleSections.checked,
-      abbreviations: ruleAbbr.checked,
-    };
-    if (!opts.abstract && !opts.sections && !opts.abbreviations) throw new Error('Tick at least one rule.');
-
-    const res = generateRulePairs(prepared.cleaned, CONFIG, opts);
-    pairs1 = res.pairs;
-    if (!pairs1.length) throw new Error('No pairs were produced for this paper.');
-
+    pairs = res.pairs;
+    paperId = cleaned.paperId.replace(/[^\w.-]+/g, '_');
     const by = Object.entries(res.stats.byRule).map(([k, v]) => `${k}: ${v}`).join(' | ');
-    stage1Summary.textContent =
-      `${res.stats.total} pairs generated (${by})` +
-      (res.skipped.length ? `\nSections skipped as too short: ${res.skipped.join('; ')}` : '') +
-      `\nClick a pair below to see its output.`;
-
-    renderPreview(pairs1);
-    setDownloads(true);
-    setBadge(badge2, `Done: ${pairs1.length} pairs`, 'ok');
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    setStatus(
+      `${cleaned.title || file.name}\n` +
+      `${extracted.pages.length} pages -> ${pairs.length} pairs in ${secs}s (${by})` +
+      (res.skipped.length ? `\nSkipped as too short: ${res.skipped.join('; ')}` : '')
+    );
+    renderPreview(pairs);
+    dlJson.disabled = false;
+    dlJsonl.disabled = false;
   } catch (err) {
     console.error(err);
-    showAlert(err.message);
+    setStatus('Error: ' + err.message, true);
   }
 });
 
-dl1Json.addEventListener('click', () => {
-  if (!pairs1) return;
-  download(`${baseName()}_stage1_${pairs1.length}pairs.json`, toJson(pairs1, includeMeta.checked), 'application/json');
+dlJson.addEventListener('click', () => {
+  if (pairs) download(`${paperId}_${pairs.length}pairs.json`, toJson(pairs, includeMeta.checked), 'application/json');
 });
 
-dl1Jsonl.addEventListener('click', () => {
-  if (!pairs1) return;
-  download(`${baseName()}_stage1_${pairs1.length}pairs.jsonl`, toJsonl(pairs1, includeMeta.checked), 'application/jsonl');
-});
-
-// ---------- debug ----------
-previewBtn.addEventListener('click', () => {
-  if (!prepared) return;
-  const { cleaned, chunks } = prepared;
-  let t = `${cleaned.title}\nChunks: ${chunks.length}\n\n`;
-  chunks.forEach((c, i) => {
-    t += `#${i + 1}  ${String(c.tokens).padStart(4)} tok  ${c.sectionPath}`;
-    if (c.ofParts > 1) t += `  [part ${c.part}/${c.ofParts}]`;
-    t += '\n';
-  });
-  debugOut.textContent = t;
+dlJsonl.addEventListener('click', () => {
+  if (pairs) download(`${paperId}_${pairs.length}pairs.jsonl`, toJsonl(pairs, includeMeta.checked), 'application/jsonl');
 });
