@@ -8,7 +8,8 @@ export const CONFIG = {
   model: 'gemini-3.8-flash',
   temperature: 0.3,
   maxOutputTokens: 8192,
-  maxRetries: 4,
+  maxRetries: 3,
+  requestTimeoutMs: 60000,
   retryBaseDelayMs: 4000,
 
   // Dataset run
