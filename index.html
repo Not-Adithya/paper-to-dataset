@@ -7,52 +7,18 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>Paper to Dataset</h1>
-    <p class="sub">Turn a research paper into input/output training pairs.</p>
-  </header>
+  <h1>Paper to Dataset</h1>
 
-  <div id="alert" class="alert" hidden></div>
+  <input type="file" id="pdfFile" accept="application/pdf">
+  <p id="status"></p>
 
-  <section class="panel">
-    <h2><span class="num">1</span> Paper <span id="badge1" class="badge wait">Waiting</span></h2>
-    <input type="file" id="pdfFile" accept="application/pdf">
-    <p id="paperInfo" class="info"></p>
-  </section>
+  <div>
+    <button id="dlJson" disabled>Download JSON</button>
+    <button id="dlJsonl" disabled>Download JSONL</button>
+  </div>
+  <label class="check"><input type="checkbox" id="includeMeta"> Include metadata (rule, section)</label>
 
-  <section class="panel">
-    <h2><span class="num">2</span> Stage 1: Rule-based pairs <span id="badge2" class="badge wait">Locked</span></h2>
-    <p class="hint">Instant, free, no AI. Every answer is the paper's own text, so nothing is invented.</p>
-    <div class="checks">
-      <label class="check"><input type="checkbox" id="ruleAbstract" checked> Abstract summary</label>
-      <label class="check"><input type="checkbox" id="ruleSections" checked> One pair per section</label>
-      <label class="check"><input type="checkbox" id="ruleAbbr" checked> Abbreviation definitions</label>
-    </div>
-    <div class="actions">
-      <button id="stage1Btn" class="primary" disabled>Generate stage 1</button>
-      <button id="dl1Json" disabled>Download JSON</button>
-      <button id="dl1Jsonl" disabled>Download JSONL</button>
-    </div>
-    <label class="check"><input type="checkbox" id="includeMeta"> Include metadata in the file (stage, rule, section)</label>
-    <div id="stage1Summary" class="info"></div>
-    <div id="stage1Preview"></div>
-  </section>
-
-  <section class="panel locked">
-    <h2><span class="num">3</span> Stage 2: AI-written Q&amp;A <span class="badge wait">Next step</span></h2>
-    <p class="hint">Coming next: connect any LLM (OpenAI-compatible services, Gemini, or local Ollama), see "Connected to ..." with live ETA, and generate fewer, sharper pairs with a verification pass.</p>
-  </section>
-
-  <section class="panel locked">
-    <h2><span class="num">4</span> Combine <span class="badge wait">Later</span></h2>
-    <p class="hint">Merge the stage 1 and stage 2 files into one deduplicated dataset.</p>
-  </section>
-
-  <details>
-    <summary>Debug tools</summary>
-    <button id="previewBtn" disabled>List chunks</button>
-    <pre id="debugOut"></pre>
-  </details>
+  <div id="preview"></div>
 
   <script type="module" src="js/app.js"></script>
 </body>
