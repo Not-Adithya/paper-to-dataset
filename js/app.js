@@ -62,7 +62,7 @@ fileInput.addEventListener('change', async () => {
   try {
     const extracted = await extractPdf(file);
     const cleaned = cleanAndSection(extracted, CONFIG.clean);
-    if (!cleaned.sections.length) throw new Error('No sections found. The PDF may be scanned (image-only).');
+    if (!cleaned.sections.length) { const sizes = {}; for (const p of extracted.pages) for (const l of p.lines) sizes[l.fontSize] = (sizes[l.fontSize] || 0) + 1; const top = Object.entries(sizes).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => `${s}pt x${n}`).join(', '); const sample = (extracted.pages[0]?.lines || []).slice(0, 25).map((l) => `[${l.fontSize}] ${l.text}`).join('\n'); throw new Error(`No sections found.\nLines extracted: ${cleaned.debug.linesIn} | kept: ${cleaned.debug.linesKept} | body font: ${cleaned.debug.bodyFontSize}pt | heading threshold: ${cleaned.debug.headingMin.toFixed(1)}pt\nFont sizes: ${top}\n\nFirst lines of page 1:\n${sample}`); }
 
     const res = generateRulePairs(cleaned, CONFIG);
     if (!res.pairs.length) throw new Error('No pairs were produced for this paper.');
