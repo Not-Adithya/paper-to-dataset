@@ -1,10 +1,8 @@
-// Turns final pairs into downloadable text. Pure functions, no DOM.
+// Turns final pairs into downloadable text. Records are { input, output } (+ meta if asked).
 
 export function buildRecords(pairs, includeMeta) {
   return pairs.map((p) =>
-    includeMeta
-      ? { instruction: p.instruction, input: p.input, output: p.output, task_type: p.task_type, meta: p.meta }
-      : { instruction: p.instruction, input: p.input, output: p.output }
+    includeMeta ? { input: p.input, output: p.output, meta: p.meta } : { input: p.input, output: p.output }
   );
 }
 
