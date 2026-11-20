@@ -73,7 +73,7 @@ fileInput.addEventListener('change', async () => {
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     setStatus(
       `${cleaned.title || file.name}\n` +
-      `${extracted.pages.length} pages -> ${pairs.length} pairs in ${secs}s (${by})` +
+      `${extracted.pages.length} pages -> ${pairs.length} pairs in ${secs}s (${by}) | headings: ${cleaned.debug.mode}` +
       (res.skipped.length ? `\nSkipped as too short: ${res.skipped.join('; ')}` : '')
     );
     renderPreview(pairs);
