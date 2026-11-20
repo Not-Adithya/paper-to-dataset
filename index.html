@@ -9,14 +9,22 @@
 <body>
   <h1>Paper to Dataset</h1>
 
-  <input type="file" id="pdfFile" accept="application/pdf">
+  <input type="file" id="pdfFile" accept="application/pdf" multiple>
+  <button id="stopBtn" disabled>Stop</button>
+
+  <div id="progressWrap" hidden>
+    <div class="bar"><div id="barFill"></div></div>
+    <p id="progressText"></p>
+  </div>
+
   <p id="status"></p>
+  <ul id="fileList"></ul>
 
   <div>
     <button id="dlJson" disabled>Download JSON</button>
     <button id="dlJsonl" disabled>Download JSONL</button>
   </div>
-  <label class="check"><input type="checkbox" id="includeMeta"> Include metadata (rule, section)</label>
+  <label class="check"><input type="checkbox" id="includeMeta"> Include metadata (source paper, rule, section)</label>
 
   <div id="preview"></div>
 
