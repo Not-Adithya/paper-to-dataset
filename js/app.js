@@ -6,18 +6,36 @@ import { toJson, toJsonl } from './export.js';
 
 const $ = (id) => document.getElementById(id);
 const fileInput = $('pdfFile');
+const stopBtn = $('stopBtn');
+const progressWrap = $('progressWrap');
+const barFill = $('barFill');
+const progressText = $('progressText');
 const statusEl = $('status');
+const fileList = $('fileList');
 const dlJson = $('dlJson');
 const dlJsonl = $('dlJsonl');
 const includeMeta = $('includeMeta');
 const preview = $('preview');
 
-let pairs = null;
-let paperId = 'paper';
+const PREVIEW_LIMIT = 20;
+
+let allPairs = [];
+let fileCount = 0;
+let stopRequested = false;
+
+const fmt = (ms) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
   statusEl.className = isError ? 'error' : '';
+}
+
+function setDownloads(on) {
+  dlJson.disabled = !on;
+  dlJsonl.disabled = !on;
 }
 
 function download(name, text, mime) {
@@ -33,7 +51,7 @@ function download(name, text, mime) {
 
 function renderPreview(list) {
   preview.textContent = '';
-  list.forEach((p, i) => {
+  list.slice(0, PREVIEW_LIMIT).forEach((p, i) => {
     const d = document.createElement('details');
     d.className = 'pair';
     d.open = i === 0;
@@ -47,48 +65,125 @@ function renderPreview(list) {
     d.append(s, out);
     preview.appendChild(d);
   });
+  if (list.length > PREVIEW_LIMIT) {
+    const more = document.createElement('p');
+    more.textContent = `Showing the first ${PREVIEW_LIMIT} of ${list.length} pairs. The download has all of them.`;
+    preview.appendChild(more);
+  }
 }
 
-fileInput.addEventListener('change', async () => {
-  const file = fileInput.files[0];
-  pairs = null;
-  dlJson.disabled = true;
-  dlJsonl.disabled = true;
+function addRow(text, cls) {
+  const li = document.createElement('li');
+  li.textContent = text;
+  li.className = cls;
+  fileList.appendChild(li);
+  fileList.scrollTop = fileList.scrollHeight;
+  return li;
+}
+
+function setProgress(done, total, t0, label) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  barFill.style.width = pct + '%';
+  const elapsed = Date.now() - t0;
+  const eta = done > 0 ? (elapsed / done) * (total - done) : null;
+  progressText.textContent =
+    `File ${Math.min(done + 1, total)}/${total} (${pct}% done) | pairs so far: ${allPairs.length} | ` +
+    `elapsed ${fmt(elapsed)}${eta !== null ? ` | ETA ~${fmt(eta)}` : ''}` +
+    (label ? `\n${label}` : '');
+}
+
+async function processFile(file) {
+  const extracted = await extractPdf(file);
+  const cleaned = cleanAndSection(extracted, CONFIG.clean);
+  if (!cleaned.sections.length) {
+    throw new Error('no sections found (scanned PDF or unusual layout)');
+  }
+  const res = generateRulePairs(cleaned, CONFIG);
+  if (!res.pairs.length) throw new Error('no pairs produced');
+  return { pairs: res.pairs, pages: extracted.pages.length, mode: cleaned.debug.mode };
+}
+
+async function runBatch(files) {
+  allPairs = [];
+  fileCount = 0;
+  stopRequested = false;
+  fileList.textContent = '';
   preview.textContent = '';
-  if (!file) { setStatus(''); return; }
+  setDownloads(false);
+  setStatus('');
+  progressWrap.hidden = false;
+  fileInput.disabled = true;
+  stopBtn.disabled = false;
 
-  setStatus('Reading PDF...');
-  const t0 = performance.now();
-  try {
-    const extracted = await extractPdf(file);
-    const cleaned = cleanAndSection(extracted, CONFIG.clean);
-    if (!cleaned.sections.length) { const sizes = {}; for (const p of extracted.pages) for (const l of p.lines) sizes[l.fontSize] = (sizes[l.fontSize] || 0) + 1; const top = Object.entries(sizes).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => `${s}pt x${n}`).join(', '); const sample = (extracted.pages[0]?.lines || []).slice(0, 25).map((l) => `[${l.fontSize}] ${l.text}`).join('\n'); throw new Error(`No sections found.\nLines extracted: ${cleaned.debug.linesIn} | kept: ${cleaned.debug.linesKept} | body font: ${cleaned.debug.bodyFontSize}pt | heading threshold: ${cleaned.debug.headingMin.toFixed(1)}pt\nFont sizes: ${top}\n\nFirst lines of page 1:\n${sample}`); }
+  const t0 = Date.now();
+  let ok = 0;
+  let failed = 0;
+  let done = 0;
 
-    const res = generateRulePairs(cleaned, CONFIG);
-    if (!res.pairs.length) throw new Error('No pairs were produced for this paper.');
+  for (const file of files) {
+    if (stopRequested) break;
+    setProgress(done, files.length, t0, `Reading ${file.name}...`);
+    const row = addRow(`${file.name}: reading...`, 'work');
+    const f0 = performance.now();
+    try {
+      const r = await processFile(file);
+      allPairs.push(...r.pairs);
+      ok++;
+      row.textContent = `${file.name}: ${r.pairs.length} pairs (${r.pages} pages, ${((performance.now() - f0) / 1000).toFixed(1)}s)`;
+      row.className = 'ok';
+    } catch (err) {
+      console.error(file.name, err);
+      failed++;
+      row.textContent = `${file.name}: FAILED, ${err.message}`;
+      row.className = 'fail';
+    }
+    done++;
+    fileCount = ok;
+    setProgress(done, files.length, t0, '');
+  }
 
-    pairs = res.pairs;
-    paperId = cleaned.paperId.replace(/[^\w.-]+/g, '_');
-    const by = Object.entries(res.stats.byRule).map(([k, v]) => `${k}: ${v}`).join(' | ');
-    const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    setStatus(
-      `${cleaned.title || file.name}\n` +
-      `${extracted.pages.length} pages -> ${pairs.length} pairs in ${secs}s (${by}) | headings: ${cleaned.debug.mode}` +
-      (res.skipped.length ? `\nSkipped as too short: ${res.skipped.join('; ')}` : '')
-    );
-    renderPreview(pairs);
-    dlJson.disabled = false;
-    dlJsonl.disabled = false;
-  } catch (err) {
+  barFill.style.width = Math.round((done / files.length) * 100) + '%';
+  progressText.textContent = stopRequested ? 'Stopped.' : 'Finished.';
+  fileInput.disabled = false;
+  stopBtn.disabled = true;
+  stopBtn.textContent = 'Stop';
+
+  setStatus(
+    `${files.length} file${files.length === 1 ? '' : 's'} selected | ${done} processed: ${ok} ok, ${failed} failed` +
+    (stopRequested ? `, ${files.length - done} skipped (stopped)` : '') +
+    ` | ${allPairs.length} pairs total | ${fmt(Date.now() - t0)}`,
+    ok === 0
+  );
+
+  if (allPairs.length) {
+    renderPreview(allPairs);
+    setDownloads(true);
+  }
+}
+
+fileInput.addEventListener('change', () => {
+  const files = [...fileInput.files].filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  if (!files.length) return;
+  runBatch(files).catch((err) => {
     console.error(err);
     setStatus('Error: ' + err.message, true);
-  }
+    fileInput.disabled = false;
+    stopBtn.disabled = true;
+  });
+});
+
+stopBtn.addEventListener('click', () => {
+  stopRequested = true;
+  stopBtn.disabled = true;
+  stopBtn.textContent = 'Stopping after this file...';
 });
 
 dlJson.addEventListener('click', () => {
-  if (pairs) download(`${paperId}_${pairs.length}pairs.json`, toJson(pairs, includeMeta.checked), 'application/json');
+  if (!allPairs.length) return;
+  download(`dataset_${fileCount}papers_${allPairs.length}pairs.json`, toJson(allPairs, includeMeta.checked), 'application/json');
 });
 
 dlJsonl.addEventListener('click', () => {
-  if (pairs) download(`${paperId}_${pairs.length}pairs.jsonl`, toJsonl(pairs, includeMeta.checked), 'application/jsonl');
+  if (!allPairs.length) return;
+  download(`dataset_${fileCount}papers_${allPairs.length}pairs.jsonl`, toJsonl(allPairs, includeMeta.checked), 'application/jsonl');
 });
