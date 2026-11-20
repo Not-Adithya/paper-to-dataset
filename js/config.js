@@ -10,7 +10,7 @@ export const CONFIG = {
     minChars: 50,
     maxChars: 350,
     minWords: 8,
-    maxNumberPerSection: 5,
+    maxNumberPerSection: 2,
     maxDefinitionPerSection: 4,
     maxReasonPerSection: 3,
   },
