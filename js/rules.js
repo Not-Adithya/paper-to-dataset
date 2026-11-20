@@ -1,3 +1,4 @@
+// Yello
 // Stage 1: cleaned paper -> rule-based pairs { input, output, meta }.
 // No AI. Outputs are always the paper's own text. Pure functions, no DOM.
 
