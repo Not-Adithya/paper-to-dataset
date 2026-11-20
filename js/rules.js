@@ -1,6 +1,7 @@
-// Yello
-// Stage 1: cleaned paper -> rule-based pairs { input, output, meta }.
+// Rule-based pairs: cleaned paper -> { input, output, meta }.
 // No AI. Outputs are always the paper's own text. Pure functions, no DOM.
+
+import { sentencePairs } from './sentences.js';
 
 const STOP = new Set(['of', 'the', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'with', 'by']);
 
@@ -127,12 +128,13 @@ function findAbbreviations(text) {
 // ---------- main ----------
 
 export function generateRulePairs(cleaned, cfg, opts = {}) {
-  const o = { abstract: true, sections: true, abbreviations: true, ...opts };
+  const o = { abstract: true, sections: true, abbreviations: true, sentences: true, ...opts };
   const r = cfg.rules;
   const title = cleaned.title || cleaned.paperId;
   const pairs = [];
   const skipped = [];
   const seenAbbr = new Set();
+  const seenInputs = new Set();
   const stack = [];
 
   const make = (rule, section, input, output) => ({
@@ -177,6 +179,17 @@ export function generateRulePairs(cleaned, cfg, opts = {}) {
           `${a.abbr} stands for ${a.long}. In the paper: ${a.sentence}`
         ));
       }
+    }
+
+    if (o.sentences) {
+      pairs.push(...sentencePairs(s, {
+        title,
+        label: prettyHeading(s.title),
+        paperId: cleaned.paperId,
+        schemaVersion: cfg.schemaVersion,
+        limits: cfg.sentences,
+        seen: seenInputs,
+      }));
     }
   }
 
