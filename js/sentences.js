@@ -4,18 +4,23 @@
 const ABBREV = /(?:et\.al|et al|e\.g|i\.e|etc|vs|Figs?|Eqs?|Sec|Tab|cf|approx|No)\.$/i;
 const INITIAL = /(?:^|\s)[A-Z]\.$/;
 
+// citations
 const CITATION = /\s*\[\d+(?:\s*[,–-]\s*\d+)*\]/g;
 const CITATION_AS_NOUN = /\b(?:in|by|see|from|of|and|with|to|per|following)\s+\[\d/i;
+const CITATION_AUTHOR_YEAR = /\s*\([A-Z][^()]{0,60}?,\s*(?:19|20)\d{2}[a-z]?(?:\s*[;,][^()]{0,60}?(?:19|20)\d{2}[a-z]?)*\)/g;
+const AUTHOR_AS_NOUN = /\b[A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+|\set al\.?)?\s\((?:19|20)\d{2}[a-z]?\)/;
+
 const REFERS_ELSEWHERE = /\b(?:Table|Figure|Fig\.|Section|Sec\.|Eq\.|Equation|Chapter|Appendix)\s*\d/;
 const DEPENDENT_START = /^(?:This|These|Those|That|It|They|Its|Their|Such|Here|There|However|Thus|Therefore|Hence|Moreover|Furthermore|Additionally|Also|Then|Finally|Second|Secondly|Third|Both|Another|Similarly|Likewise|Overall|Instead|Still|Yet|But|And|So|Next|Further)\b/;
 
-const BAD_SUBJECT = /^(?:This|These|Those|That|It|They|We|Our|Their|Its|There|Here|Which|What|Such|Another|Each|Both|Some|Most|All|Many|Other|One|Two|Three|First|Second|Third|Finally|Thus|However|Also|Moreover|Furthermore|Additionally|Therefore|Hence|Overall|In|For|As|On|At|By|With|From|To|When|While|If|Since|Although|Because)\b|^The\s+(?:paper|work|study|goal|aim|purpose|rest|number|following|above|main|key|first|second|third|remaining)\b/i;
+const BAD_SUBJECT = /^(?:This|These|Those|That|It|They|We|Our|Their|Its|There|Here|Which|What|Such|Another|Each|Both|Some|Most|All|Many|Other|One|Two|Three|First|Second|Third|Finally|Thus|However|Also|Moreover|Furthermore|Additionally|Therefore|Hence|Overall|In|For|As|On|At|By|With|From|To|When|While|If|Since|Although|Because|Among|Despite|Within|Without|Under|During|After|Before|Between|Through|Across|Over|Into|Based|According|Using|Given)\b|^The\s+(?:paper|work|study|goal|aim|purpose|rest|number|following|above|main|key|first|second|third|remaining)\b/i;
 const GENERIC_SUBJECT = /\b(?:paper|work|study|section|goal|aim|purpose)\b/i;
 
-const UNITS = 'Hz|kHz|ms|secs?|seconds?|minutes?|hours?|days?|weeks?|months?|epochs?|subjects|participants|patients|samples|units|layers|features|dimensions?|timesteps|neurons|nodes|cells|classes|images|videos|recordings|interviews|users|people|million|billion|thousand|times|folds|trials|parameters|GB|MB|KB|fps';
-const NUM_PERCENT = /(?<![\w.-])\d+(?:\.\d+)?\s?%/g;
-const NUM_DECIMAL = /(?<![\w.-])\d+\.\d+(?!\.?\d)(?!\s?%)/g;
-const NUM_UNIT = new RegExp(`(?<![\\w.-])(\\d{1,3}(?:,\\d{3})*)\\s+(?:${UNITS})\\b`, 'gi');
+// number rule
+const UNITS = 'mm|cm|km|MHz|GHz|kHz|Hz|dB|rem|mrem|Ci|kV|mA|mg|kg|psi|MPa|GPa|ms|°C|°F|secs?|seconds?|minutes?|hours?|hrs?|days?|weeks?|months?|years?|epochs?|subjects|participants|patients|samples|units|layers|features|dimensions?|timesteps|neurons|nodes|cells|classes|images|videos|recordings|interviews|users|people|million|billion|thousand|folds|trials|parameters|GB|MB|KB|fps|welds|inspections|inspectors|technicians|joints|specimens|pipes|modules';
+const UNIT_AFTER = new RegExp(`^(?:\\s?[-–]\\s?\\d+(?:\\.\\d+)?)?\\s?(?:${UNITS})(?![A-Za-z])`, 'i');
+const SKIP_NUMBER_SENTENCE = /[=×≥≤<>]|[a-z]+_[a-z]+|\b(?:p-value|correlation coefficient|null hypothesis)\b/i;
+const COMPARATIVE = /\b(?:increase|decrease|higher|lower|compared|reduction|improvement)\b/i;
 
 const CONNECTORS = [
   { re: /,?\s+because\s+/i, label: 'Because', kind: 'reason' },
@@ -25,6 +30,9 @@ const CONNECTORS = [
 ];
 
 const q = (s) => String(s).replace(/"/g, "'");
+
+// A section label is only worth showing if it looks like a real heading
+const labelOk = (l) => !!l && l.length <= 80 && !/=/.test(l) && !/-$/.test(l);
 
 // ---------- sentence preparation ----------
 
@@ -45,8 +53,8 @@ function splitSentences(paragraph) {
 // Returns a clean, self-standing sentence, or null if it is unusable
 function prepare(raw, L) {
   let s = raw.replace(/^[•●▪◦‣]\s*/, '').replace(/\s+/g, ' ').trim();
-  if (CITATION_AS_NOUN.test(s)) return null;
-  s = s.replace(CITATION, '').replace(/\s+([,.;:!?])/g, '$1').replace(/\s+/g, ' ').trim();
+  if (CITATION_AS_NOUN.test(s) || AUTHOR_AS_NOUN.test(s)) return null;
+  s = s.replace(CITATION, '').replace(CITATION_AUTHOR_YEAR, '').replace(/\s+([,.;:!?])/g, '$1').replace(/\s+/g, ' ').trim();
   if (s.length < L.minChars || s.length > L.maxChars) return null;
   if (s.split(' ').length < L.minWords) return null;
   if (!/^[A-Z]/.test(s) || !/[.!?]["”’)]?$/.test(s)) return null;
@@ -65,10 +73,14 @@ function definition(s) {
   if ((verb === 'is' || verb === 'are') && !/^(?:a|an|the|defined|used|called|known|one|any)\b/i.test(rest)) return null;
 
   const subj = s.slice(0, m.index).trim();
-  if (subj.length < 3 || subj.length > 80 || subj.split(' ').length > 8) return null;
+  if (subj.length < 3 || subj.length > 80 || subj.split(' ').length > 6) return null;
   if (/[,;:]/.test(subj)) return null;
-  if (/\b(?:and|or|which|that|who|where|when|how|why|what|if|since|because|while|although|not)\b/i.test(subj)) return null;
+  if (/\b(?:and|or|which|that|who|where|when|how|why|what|if|since|because|while|although|not|to|from|for|by|with|at|than|about|between|among)\b/i.test(subj)) return null;
   if (BAD_SUBJECT.test(subj) || GENERIC_SUBJECT.test(subj)) return null;
+
+  // must look like a term: 2+ words, or one word with an inner capital / digit (IQIs, PAUT)
+  const core = subj.replace(/^(?:the|a|an)\s+/i, '');
+  if (core.split(' ').length < 2 && !/[A-Z0-9]/.test(core.slice(1))) return null;
 
   return {
     subject: subj.replace(/^(The|A|An)\s+/, (x) => x.toLowerCase()),
@@ -79,12 +91,36 @@ function definition(s) {
 // ---------- rule: number ----------
 
 function numberCandidate(s) {
-  const count = (s.match(/\d+(?:\.\d+)?/g) || []).length;
-  if (count === 0 || count > 5) return null;
+  if (s.length > 260 || SKIP_NUMBER_SENTENCE.test(s)) return null;
+  const all = s.match(/\d+(?:\.\d+)?/g) || [];
+  if (all.length === 0 || all.length > 4) return null;
+
   const cands = [];
-  for (const m of s.matchAll(NUM_PERCENT)) cands.push({ idx: m.index, len: m[0].length, value: m[0].replace(/\s+/g, ''), score: 3 });
-  for (const m of s.matchAll(NUM_DECIMAL)) cands.push({ idx: m.index, len: m[0].length, value: m[0], score: 2 });
-  for (const m of s.matchAll(NUM_UNIT)) cands.push({ idx: m.index, len: m[1].length, value: m[1], score: 1 });
+  const re = /(?<![\w.-])(\$?)(\d+(?:,\d{3})*(?:\.\d+)?)/g;
+  for (const m of s.matchAll(re)) {
+    const digits = m[2];
+    const start = m.index + m[1].length;
+    const end = start + digits.length;
+    const after = s.slice(end);
+
+    if (/^[”"″′'’]/.test(after)) continue;   // inch / quote marks
+
+    // the value must appear only once in the sentence, or the blank is ambiguous
+    const esc = digits.replace(/\./g, '\\.');
+    if ((s.match(new RegExp(`(?<![\\d.])${esc}(?!\\d)`, 'g')) || []).length > 1) continue;
+
+    const isDecimal = digits.includes('.');
+    const pct = after.match(/^\s?%/);
+    if (pct) {
+      if (COMPARATIVE.test(s)) continue;
+      cands.push({ idx: start, len: digits.length + pct[0].length, value: digits + '%', score: 3 });
+    } else if (m[1] === '$') {
+      cands.push({ idx: start, len: digits.length, value: digits, score: 3 });
+    } else if (UNIT_AFTER.test(after)) {
+      if (!isDecimal && Number(digits.replace(/,/g, '')) < 4) continue;
+      cands.push({ idx: start, len: digits.length, value: digits, score: isDecimal ? 2 : 1 });
+    }
+  }
   if (!cands.length) return null;
   cands.sort((a, b) => b.score - a.score || a.idx - b.idx);
   return cands[0];
@@ -111,6 +147,7 @@ function reasonSplit(s) {
 
 export function sentencePairs(section, ctx) {
   const { title, label, paperId, schemaVersion, limits: L, seen } = ctx;
+  const where = labelOk(label) ? ` (section "${q(label)}")` : '';
 
   const sentences = [];
   for (const para of section.text.split(/\n\n+/)) {
@@ -157,7 +194,7 @@ export function sentencePairs(section, ctx) {
   for (const x of nums) {
     if (picked.length >= L.maxNumberPerSection) break;
     const masked = x.s.slice(0, x.c.idx) + '____' + x.s.slice(x.c.idx + x.c.len);
-    const input = `Fill in the missing number from the paper "${q(title)}" (section "${q(label)}"):\n"${q(masked)}"`;
+    const input = `Fill in the missing number from the paper "${q(title)}"${where}:\n"${q(masked)}"`;
     if (seen.has(input)) continue;
     picked.push({ i: x.i, s: x.s, input, output: `${x.c.value}. Full sentence: ${x.s}` });
   }
@@ -172,7 +209,7 @@ export function sentencePairs(section, ctx) {
     const x = reasonSplit(s);
     if (!x) continue;
     const ask = x.kind === 'reason' ? 'What reason do they give?' : 'What purpose do they state?';
-    const input = `In the paper "${q(title)}" (section "${q(label)}"), the authors write: "${q(x.before)} …" ${ask}`;
+    const input = `In the paper "${q(title)}"${where}, the authors write: "${q(x.before)} …" ${ask}`;
     if (add('reason', input, `${x.label} ${x.after}`, s)) nReason++;
   }
 
