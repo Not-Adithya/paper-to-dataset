@@ -51,6 +51,7 @@ function prepare(raw, L) {
   if (s.split(' ').length < L.minWords) return null;
   if (!/^[A-Z]/.test(s) || !/[.!?]["”’)]?$/.test(s)) return null;
   if (REFERS_ELSEWHERE.test(s) || /https?:\/\//.test(s)) return null;
+  if (/\b(?:I|My|my|me|mine|myself)\b/.test(s)) return null;   // personal narrative
   return s;
 }
 
