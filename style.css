@@ -1,13 +1,26 @@
-:root { --bg: #fff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde6; --card: #f7f8fb; --accent: #2d6cdf; --err: #c0392b; }
+:root { --bg: #fff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde6; --card: #f7f8fb; --accent: #2d6cdf; --ok: #1a7f4b; --err: #c0392b; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #14171f; --fg: #e8ebf2; --muted: #9aa3b5; --line: #2c3342; --card: #1b2029; --accent: #6b9bff; --err: #ff7b6b; }
+  :root { --bg: #14171f; --fg: #e8ebf2; --muted: #9aa3b5; --line: #2c3342; --card: #1b2029; --accent: #6b9bff; --ok: #4cc38a; --err: #ff7b6b; }
 }
 body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 860px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
-#status { white-space: pre-wrap; color: var(--muted); }
-#status.error { color: var(--err); }
 button { padding: 0.5rem 1.1rem; margin: 0.25rem 0.3rem 0.25rem 0; cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+
+.bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; margin-top: 1rem; }
+#barFill { height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
+#progressText { margin: 0.4rem 0; font-size: 0.9rem; color: var(--muted); }
+#status { white-space: pre-wrap; color: var(--muted); }
+#status.error { color: var(--err); }
+
+#fileList { list-style: none; padding: 0; margin: 0.5rem 0 1rem; font-size: 0.88rem; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+#fileList:empty { display: none; }
+#fileList li { padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+#fileList li:last-child { border-bottom: none; }
+#fileList li.work { color: var(--muted); }
+#fileList li.ok { color: var(--ok); }
+#fileList li.fail { color: var(--err); }
+
 .pair { border: 1px solid var(--line); border-radius: 8px; margin: 0.4rem 0; background: var(--card); }
 .pair summary { cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.92rem; }
 .pair p { white-space: pre-wrap; margin: 0; padding: 0 0.75rem 0.75rem; font-size: 0.88rem; max-height: 320px; overflow: auto; }
