@@ -16,8 +16,11 @@ const dlJson = $('dlJson');
 const dlJsonl = $('dlJsonl');
 const includeMeta = $('includeMeta');
 const preview = $('preview');
+const useSections = $('useSections');
+const useSentences = $('useSentences');
 
 const PREVIEW_LIMIT = 20;
+const SENTENCE_RULES = new Set(['number', 'definition', 'reason']);
 
 let allPairs = [];
 let fileCount = 0;
@@ -49,9 +52,18 @@ function download(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Show up to 12 sentence-level pairs first (the new rules), then fill with the rest
+function pickPreview(list) {
+  const sent = list.filter((p) => SENTENCE_RULES.has(p.meta.rule));
+  const rest = list.filter((p) => !SENTENCE_RULES.has(p.meta.rule));
+  const nSent = Math.min(12, sent.length);
+  return [...sent.slice(0, nSent), ...rest.slice(0, PREVIEW_LIMIT - nSent)];
+}
+
 function renderPreview(list) {
   preview.textContent = '';
-  list.slice(0, PREVIEW_LIMIT).forEach((p, i) => {
+  const shown = pickPreview(list);
+  shown.forEach((p, i) => {
     const d = document.createElement('details');
     d.className = 'pair';
     d.open = i === 0;
@@ -65,9 +77,9 @@ function renderPreview(list) {
     d.append(s, out);
     preview.appendChild(d);
   });
-  if (list.length > PREVIEW_LIMIT) {
+  if (list.length > shown.length) {
     const more = document.createElement('p');
-    more.textContent = `Showing the first ${PREVIEW_LIMIT} of ${list.length} pairs. The download has all of them.`;
+    more.textContent = `Showing ${shown.length} of ${list.length} pairs. The download has all of them.`;
     preview.appendChild(more);
   }
 }
@@ -92,18 +104,21 @@ function setProgress(done, total, t0, label) {
     (label ? `\n${label}` : '');
 }
 
-async function processFile(file) {
+async function processFile(file, opts) {
   const extracted = await extractPdf(file);
   const cleaned = cleanAndSection(extracted, CONFIG.clean);
   if (!cleaned.sections.length) {
     throw new Error('no sections found (scanned PDF or unusual layout)');
   }
-  const res = generateRulePairs(cleaned, CONFIG);
+  const res = generateRulePairs(cleaned, CONFIG, opts);
   if (!res.pairs.length) throw new Error('no pairs produced');
-  return { pairs: res.pairs, pages: extracted.pages.length, mode: cleaned.debug.mode };
+  return { pairs: res.pairs, pages: extracted.pages.length, byRule: res.stats.byRule };
 }
 
 async function runBatch(files) {
+  const sec = useSections.checked;
+  const opts = { abstract: sec, sections: sec, abbreviations: sec, sentences: useSentences.checked };
+
   allPairs = [];
   fileCount = 0;
   stopRequested = false;
@@ -116,6 +131,7 @@ async function runBatch(files) {
   stopBtn.disabled = false;
 
   const t0 = Date.now();
+  const totals = {};
   let ok = 0;
   let failed = 0;
   let done = 0;
@@ -126,8 +142,9 @@ async function runBatch(files) {
     const row = addRow(`${file.name}: reading...`, 'work');
     const f0 = performance.now();
     try {
-      const r = await processFile(file);
+      const r = await processFile(file, opts);
       allPairs.push(...r.pairs);
+      for (const [k, v] of Object.entries(r.byRule)) totals[k] = (totals[k] || 0) + v;
       ok++;
       row.textContent = `${file.name}: ${r.pairs.length} pairs (${r.pages} pages, ${((performance.now() - f0) / 1000).toFixed(1)}s)`;
       row.className = 'ok';
@@ -148,10 +165,12 @@ async function runBatch(files) {
   stopBtn.disabled = true;
   stopBtn.textContent = 'Stop';
 
+  const byRule = Object.entries(totals).map(([k, v]) => `${k}: ${v}`).join(' | ');
   setStatus(
     `${files.length} file${files.length === 1 ? '' : 's'} selected | ${done} processed: ${ok} ok, ${failed} failed` +
     (stopRequested ? `, ${files.length - done} skipped (stopped)` : '') +
-    ` | ${allPairs.length} pairs total | ${fmt(Date.now() - t0)}`,
+    ` | ${allPairs.length} pairs total | ${fmt(Date.now() - t0)}` +
+    (byRule ? `\nBy rule: ${byRule}` : ''),
     ok === 0
   );
 
@@ -164,6 +183,11 @@ async function runBatch(files) {
 fileInput.addEventListener('change', () => {
   const files = [...fileInput.files].filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
   if (!files.length) return;
+  fileInput.value = ''; // lets you pick the same files again with different options
+  if (!useSections.checked && !useSentences.checked) {
+    setStatus('Tick at least one pair type.', true);
+    return;
+  }
   runBatch(files).catch((err) => {
     console.error(err);
     setStatus('Error: ' + err.message, true);
