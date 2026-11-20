@@ -112,7 +112,13 @@ async function processFile(file, opts) {
   }
   const res = generateRulePairs(cleaned, CONFIG, opts);
   if (!res.pairs.length) throw new Error('no pairs produced');
-  return { pairs: res.pairs, pages: extracted.pages.length, byRule: res.stats.byRule };
+  return {
+    pairs: res.pairs,
+    pages: extracted.pages.length,
+    byRule: res.stats.byRule,
+    sections: cleaned.sections.length,
+    mode: cleaned.debug.mode,
+  };
 }
 
 async function runBatch(files) {
@@ -146,7 +152,9 @@ async function runBatch(files) {
       allPairs.push(...r.pairs);
       for (const [k, v] of Object.entries(r.byRule)) totals[k] = (totals[k] || 0) + v;
       ok++;
-      row.textContent = `${file.name}: ${r.pairs.length} pairs (${r.pages} pages, ${((performance.now() - f0) / 1000).toFixed(1)}s)`;
+      const rules = Object.entries(r.byRule).map(([k, v]) => `${k} ${v}`).join(', ');
+      row.textContent =
+        `${file.name}: ${r.pairs.length} pairs (${r.pages} pages, ${r.sections} sections, headings: ${r.mode}, ${((performance.now() - f0) / 1000).toFixed(1)}s)\n   ${rules}`;
       row.className = 'ok';
     } catch (err) {
       console.error(file.name, err);
