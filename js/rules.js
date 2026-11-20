@@ -7,7 +7,7 @@ const STOP = new Set(['of', 'the', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'w
 
 // Heading -> section type (first match wins)
 const TYPES = [
-  ['abstract', /^abstract$/i],
+  ['abstract', /^abstract\b/i],
   ['contributions', /contribution/i],
   ['introduction', /^introduction$/i],
   ['dataset', /\b(?:dataset|data set|corpus)\b/i],
@@ -27,6 +27,16 @@ const stripNumber = (h) => h.replace(/^\d+(?:\.\d+)*\.?\s*/, '').trim();
 function prettyHeading(h) {
   const t = stripNumber(h);
   return t === t.toUpperCase() ? t.toLowerCase() : t;
+}
+
+// Front-matter junk: title page, committee, copyright, table-of-contents tails
+const FRONT_MATTER = /all rights reserved|©\s*copyright|committee member|in partial fulfillment of the requirements/i;
+const CUT_AT = /\s+(?:[ivxlc]{1,6}\s+)?(?:table of contents|list of (?:figures|tables|abbreviations|symbols))\b[\s\S]*$/i;
+
+function tidySection(s) {
+  const text = s.text.replace(CUT_AT, '').trim();
+  if (FRONT_MATTER.test(text) || text.length < 100) return null;
+  return { ...s, text };
 }
 
 function classify(heading) {
@@ -130,7 +140,7 @@ function findAbbreviations(text) {
 export function generateRulePairs(cleaned, cfg, opts = {}) {
   const o = { abstract: true, sections: true, abbreviations: true, sentences: true, ...opts };
   const r = cfg.rules;
-  const title = cleaned.title || cleaned.paperId;
+  const title = cleaned.title || cleaned.paperId.replace(/_+/g, ' ');
   const pairs = [];
   const skipped = [];
   const seenAbbr = new Set();
@@ -143,7 +153,10 @@ export function generateRulePairs(cleaned, cfg, opts = {}) {
     meta: { stage: 1, rule, section, paperId: cleaned.paperId, schemaVersion: cfg.schemaVersion },
   });
 
-  for (const s of cleaned.sections) {
+  for (const raw of cleaned.sections) {
+    const s = tidySection(raw);
+    if (!s) { skipped.push(`${raw.title} (front matter)`); continue; }
+
     while (stack.length && stack[stack.length - 1].level >= s.level) stack.pop();
     const own = classify(s.title);
     const parentType = stack.length ? stack[stack.length - 1].type : 'default';
