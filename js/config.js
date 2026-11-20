@@ -6,6 +6,15 @@ export const CONFIG = {
     maxOutputChars: 5000,   // longer sections are split into parts
   },
 
+  sentences: {
+    minChars: 50,
+    maxChars: 350,
+    minWords: 8,
+    maxNumberPerSection: 5,
+    maxDefinitionPerSection: 4,
+    maxReasonPerSection: 3,
+  },
+
   clean: {
     smallFontRatio: 0.8,
     headingRatio: 1.17,
