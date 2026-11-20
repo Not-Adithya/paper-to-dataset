@@ -19,13 +19,45 @@ const preview = $('preview');
 const useSections = $('useSections');
 const useSentences = $('useSentences');
 
-const PREVIEW_LIMIT = 20;
+const PREVIEW_LIMIT = 20;   // mixed view
+const FILTER_LIMIT = 50;    // when one rule is selected
 const SENTENCE_RULES = new Set(['number', 'definition', 'reason']);
 
 let allPairs = [];
 let fileCount = 0;
 let stopRequested = false;
 
+// ---------- preview filter (created here, so index.html needs no change) ----------
+const filterBar = document.createElement('label');
+filterBar.className = 'check';
+filterBar.hidden = true;
+filterBar.append(document.createTextNode('Show in preview: '));
+const filterSel = document.createElement('select');
+filterBar.appendChild(filterSel);
+preview.parentNode.insertBefore(filterBar, preview);
+
+function rebuildFilter(list) {
+  const counts = {};
+  for (const p of list) counts[p.meta.rule] = (counts[p.meta.rule] || 0) + 1;
+  const prev = filterSel.value;
+  filterSel.textContent = '';
+  const opt = (value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    filterSel.appendChild(o);
+  };
+  opt('mixed', `Mixed sample (${list.length} pairs total)`);
+  for (const rule of ['number', 'definition', 'reason', 'abbreviation', 'section', 'abstract']) {
+    if (counts[rule]) opt(rule, `${rule} only (${counts[rule]})`);
+  }
+  filterSel.value = [...filterSel.options].some((o) => o.value === prev) ? prev : 'mixed';
+  filterBar.hidden = !list.length;
+}
+
+filterSel.addEventListener('change', () => renderPreview(allPairs));
+
+// ---------- helpers ----------
 const fmt = (ms) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -52,8 +84,8 @@ function download(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Show up to 12 sentence-level pairs first (the new rules), then fill with the rest
-function pickPreview(list) {
+// Mixed view: up to 12 sentence-level pairs first, then fill with the rest
+function pickMixed(list) {
   const sent = list.filter((p) => SENTENCE_RULES.has(p.meta.rule));
   const rest = list.filter((p) => !SENTENCE_RULES.has(p.meta.rule));
   const nSent = Math.min(12, sent.length);
@@ -62,7 +94,10 @@ function pickPreview(list) {
 
 function renderPreview(list) {
   preview.textContent = '';
-  const shown = pickPreview(list);
+  const mode = filterSel.value || 'mixed';
+  const pool = mode === 'mixed' ? list : list.filter((p) => p.meta.rule === mode);
+  const shown = mode === 'mixed' ? pickMixed(list) : pool.slice(0, FILTER_LIMIT);
+
   shown.forEach((p, i) => {
     const d = document.createElement('details');
     d.className = 'pair';
@@ -77,9 +112,10 @@ function renderPreview(list) {
     d.append(s, out);
     preview.appendChild(d);
   });
-  if (list.length > shown.length) {
+
+  if (pool.length > shown.length) {
     const more = document.createElement('p');
-    more.textContent = `Showing ${shown.length} of ${list.length} pairs. The download has all of them.`;
+    more.textContent = `Showing ${shown.length} of ${pool.length}${mode === 'mixed' ? '' : ' ' + mode} pairs. The download has all of them.`;
     preview.appendChild(more);
   }
 }
@@ -130,6 +166,7 @@ async function runBatch(files) {
   stopRequested = false;
   fileList.textContent = '';
   preview.textContent = '';
+  filterBar.hidden = true;
   setDownloads(false);
   setStatus('');
   progressWrap.hidden = false;
@@ -183,6 +220,7 @@ async function runBatch(files) {
   );
 
   if (allPairs.length) {
+    rebuildFilter(allPairs);
     renderPreview(allPairs);
     setDownloads(true);
   }
