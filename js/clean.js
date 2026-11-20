@@ -10,6 +10,12 @@ const TABLE_TOKEN = /^(?:[-–—]|\d+(?:\.\d+)?%?|\[\d+\])$/;
 const BULLET = /^[•●▪◦‣]/;
 const KEEP_HYPHEN = new Set(['non', 'self', 'cross', 'semi', 'high', 'low', 'long', 'short', 'state', 'end', 'real']);
 
+// patterns used only by the loose heading detector
+const ROMAN = /^[IVX]{1,5}\.\s+\S/;
+const CHAPTER = /^(?:chapter|appendix)\s+(?:\d+|[IVX]+|[A-Z])\b/i;
+const LEADERS = /\.{4,}|(?:\.\s){4,}/;
+const SMALL_WORDS = new Set(['of', 'the', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'with', 'by', 'or', 'at', 'from', 'vs', 'via', 'as', 'is', 'are']);
+
 // ---------- small helpers ----------
 
 function normalizeText(s) {
@@ -156,59 +162,53 @@ function assemble(lines, vocab, indentOf, cfg) {
   return text.trim();
 }
 
-// ---------- main ----------
+// ---------- loose heading detection (for papers/theses where headings are body-sized) ----------
 
-export function cleanAndSection(extracted, cfg) {
-  // 1. Flatten pages into normalized lines
-  const all = [];
-  extracted.pages.forEach((p, pi) => {
-    for (const l of p.lines) {
-      const text = normalizeText(l.text);
-      if (text) {
-        all.push({ text, fontSize: l.fontSize, x: l.x, page: p.pageNumber, pageIdx: pi, pageWidth: p.width });
-      }
-    }
-  });
-  const firstPage = extracted.pages[0] ? extracted.pages[0].pageNumber : 1;
-  const body = weightedMedianFontSize(all);
-  const headingMin = body * cfg.headingRatio;
-  const titleMin = body * cfg.titleRatio;
-  const repeated = findRepeatedKeys(all, extracted.pages.length, cfg);
-
-  // 2. Drop junk lines (and remember what was dropped)
-  const stats = { repeated: 0, smallFont: 0, captions: 0, tableRows: 0, tableHeaders: 0 };
-  const samples = { repeated: [], smallFont: [], captions: [], tableRows: [], tableHeaders: [] };
-  const drop = (kind, text) => {
-    stats[kind]++;
-    if (samples[kind].length < 6 && !samples[kind].includes(text)) samples[kind].push(text);
-  };
-
-  const kept = [];
-  let tableZone = 0;
-  for (const l of all) {
-    if (repeated.has(repeatKey(l.text))) { drop('repeated', l.text); continue; }
-    if (l.fontSize < body * cfg.smallFontRatio) { drop('smallFont', l.text); continue; }
-    if (CAPTION.test(l.text)) {
-      drop('captions', l.text);
-      tableZone = l.text.startsWith('Table') ? cfg.tableZoneLines : 0;
-      continue;
-    }
-    if (looksLikeTableRow(l.text)) { drop('tableRows', l.text); continue; }
-    if (tableZone > 0) {
-      if (l.fontSize >= headingMin) tableZone = 0;
-      else if (looksLikeTableHeader(l.text)) { tableZone--; drop('tableHeaders', l.text); continue; }
-      else tableZone = 0;
-    }
-    kept.push(l);
+// Median vertical distance between consecutive lines on the same page = normal line spacing
+function medianLineGap(lines) {
+  const gaps = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].page !== lines[i - 1].page) continue;
+    const g = lines[i - 1].y - lines[i].y;
+    if (g > 0 && g < 60) gaps.push(g);
   }
+  gaps.sort((a, b) => a - b);
+  return gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+}
 
-  const vocab = buildVocab(kept);
-  const indentOf = makeIndentFn(kept);
+function looseHeading(text, gap, medianGap, cfg) {
+  if (text.length < 3 || text.length > cfg.maxHeadingChars) return false;
+  if (LEADERS.test(text) || /[.,;:!?]$/.test(text)) return false;
+  const letters = text.replace(/[^A-Za-z]/g, '');
+  if (letters.length < 3) return false;
+  const words = text.split(' ');
+  if (words.length > 12) return false;
 
-  // 3. Walk the lines: find title, split into sections
+  const spaced = gap >= medianGap * 1.5;
+
+  if (CHAPTER.test(text) || ROMAN.test(text)) return true;
+  if (KNOWN.test(text) && words.length <= 6) return true;
+  if (/^\d+\.\d+(?:\.\d+)*\.?\s+[A-Z]/.test(text)) return true;   // "2.3 Ultrasonic Testing"
+  if (/^\d+\.?\s+[A-Z]/.test(text)) return spaced;                 // "2 Methods"
+
+  const upper = letters.replace(/[^A-Z]/g, '').length;
+  if (upper / letters.length >= 0.9 && letters.length >= 5) return spaced || gap === 0;
+
+  if (!spaced || words.length > 10) return false;
+  const content = words.filter((w) => !SMALL_WORDS.has(w.toLowerCase()));
+  if (!content.length) return false;
+  const capped = content.filter((w) => /^[A-Z]/.test(w)).length;
+  return capped / content.length >= 0.7;
+}
+
+const proseCount = (t) => (t.match(/[a-z]{2,}[.!?]["”’)\]]?(?:\s|$)/g) || []).length;
+
+// Walk the kept lines: find the title and split the rest into sections
+function walk(kept, ctx, loose) {
+  const { headingMin, titleMin, firstPage, cfg, medianGap } = ctx;
   const titleLines = [];
   const sections = [];
-  let current = { heading: null, lines: [] }; // heading null = front matter (authors etc.)
+  let current = { heading: null, lines: [] }; // heading null = front matter
   let seenReal = false;
   let stoppedAt = null;
 
@@ -230,9 +230,10 @@ export function cleanAndSection(extracted, cfg) {
       continue;
     }
 
-    const isHeading =
+    const strictHeading =
       big && l.text.length <= cfg.maxHeadingChars &&
       (numbered || known || (seenReal && !/[.!?:]$/.test(l.text)));
+    const isHeading = strictHeading || (loose && looseHeading(l.text, l.gap, medianGap, cfg));
 
     if (isHeading) {
       sections.push(current);
@@ -248,32 +249,104 @@ export function cleanAndSection(extracted, cfg) {
     current.lines.push(l);
   }
   if (current) sections.push(current);
+  return { titleLines, sections, stoppedAt };
+}
+
+// ---------- main ----------
+
+export function cleanAndSection(extracted, cfg) {
+  // 1. Flatten pages into normalized lines
+  const all = [];
+  extracted.pages.forEach((p, pi) => {
+    for (const l of p.lines) {
+      const text = normalizeText(l.text);
+      if (text) {
+        all.push({ text, fontSize: l.fontSize, x: l.x, y: l.y, page: p.pageNumber, pageIdx: pi, pageWidth: p.width });
+      }
+    }
+  });
+  const firstPage = extracted.pages[0] ? extracted.pages[0].pageNumber : 1;
+  const body = weightedMedianFontSize(all);
+  const headingMin = body * cfg.headingRatio;
+  const titleMin = body * cfg.titleRatio;
+  const repeated = findRepeatedKeys(all, extracted.pages.length, cfg);
+
+  // 2. Drop junk lines (and remember what was dropped)
+  const stats = { repeated: 0, leaders: 0, smallFont: 0, captions: 0, tableRows: 0, tableHeaders: 0 };
+  const samples = { repeated: [], leaders: [], smallFont: [], captions: [], tableRows: [], tableHeaders: [] };
+  const drop = (kind, text) => {
+    stats[kind]++;
+    if (samples[kind].length < 6 && !samples[kind].includes(text)) samples[kind].push(text);
+  };
+
+  const kept = [];
+  let tableZone = 0;
+  for (const l of all) {
+    if (repeated.has(repeatKey(l.text))) { drop('repeated', l.text); continue; }
+    if (LEADERS.test(l.text)) { drop('leaders', l.text); continue; } // table-of-contents lines
+    if (l.fontSize < body * cfg.smallFontRatio) { drop('smallFont', l.text); continue; }
+    if (CAPTION.test(l.text)) {
+      drop('captions', l.text);
+      tableZone = l.text.startsWith('Table') ? cfg.tableZoneLines : 0;
+      continue;
+    }
+    if (looksLikeTableRow(l.text)) { drop('tableRows', l.text); continue; }
+    if (tableZone > 0) {
+      if (l.fontSize >= headingMin) tableZone = 0;
+      else if (looksLikeTableHeader(l.text)) { tableZone--; drop('tableHeaders', l.text); continue; }
+      else tableZone = 0;
+    }
+    kept.push(l);
+  }
+
+  // vertical gap above each kept line (0 = first on the page)
+  kept.forEach((l, i) => {
+    const p = kept[i - 1];
+    l.gap = p && p.page === l.page && p.y > l.y ? p.y - l.y : 0;
+  });
+  const medianGap = medianLineGap(kept) || body * 1.2;
+
+  const vocab = buildVocab(kept);
+  const indentOf = makeIndentFn(kept);
+
+  // 3. Split into sections: size-based first; if that finds almost nothing, use the loose detector
+  const ctx = { headingMin, titleMin, firstPage, cfg, medianGap };
+  const realCount = (r) => r.sections.filter((s) => s.heading !== null).length;
+  let headingMode = 'size';
+  let res = walk(kept, ctx, false);
+  if (realCount(res) < 3) {
+    res = walk(kept, ctx, true);
+    headingMode = 'pattern';
+  }
 
   // 4. Build the output sections
   const out = [];
   const droppedSections = [];
-  for (const s of sections) {
+  for (const s of res.sections) {
     if (s.heading === null) continue; // front matter
     const text = assemble(s.lines, vocab, indentOf, cfg);
     if (cfg.dropSections.includes(normalizeTitle(s.heading))) { droppedSections.push(s.heading); continue; }
     if (text.length < cfg.minSectionChars) { droppedSections.push(`${s.heading} (too short)`); continue; }
+    if (headingMode === 'pattern' && proseCount(text) < 2) { droppedSections.push(`${s.heading} (no prose)`); continue; }
     out.push({ title: s.heading, level: headingLevel(s.heading), text });
   }
 
   return {
     paperId: extracted.paperId,
     source: extracted.source,
-    title: titleLines.join(' ') || null,
+    title: res.titleLines.join(' ') || null,
     sections: out,
     debug: {
+      mode: headingMode,
       bodyFontSize: body,
       headingMin,
+      medianGap,
       linesIn: all.length,
       linesKept: kept.length,
       stats,
       samples,
       droppedSections,
-      stoppedAt,
+      stoppedAt: res.stoppedAt,
     },
   };
 }
