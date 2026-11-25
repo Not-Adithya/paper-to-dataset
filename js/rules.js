@@ -8,7 +8,7 @@ const STOP = new Set(['of', 'the', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'w
 // Heading -> section type (first match wins)
 const TYPES = [
   ['abstract', /^abstract\b/i],
-  ['contributions', /contribution/i],
+  ['contributions', /^(?:(?:key|main|major|our)\s+)?contributions?\b/i],   // NOT "Author Contributions"
   ['introduction', /^introduction$/i],
   ['dataset', /\b(?:dataset|data set|corpus)\b/i],
   ['related', /related work|background|prior work|literature/i],
@@ -16,6 +16,9 @@ const TYPES = [
   ['discussion', /discussion|conclusion|future work|limitations/i],
   ['method', /method|architecture|framework/i],
 ];
+
+// Sections that never belong in technical answers
+const SKIP_SECTION = /^(?:author contributions?|authors.? contributions?|funding|data availability|conflicts? of interest|institutional review|informed consent|acknowledg|supplementary|abbreviations|declarations?|ethics|publisher|disclosure|credit|competing|author information|references|bibliography)/i;
 
 const GENERIC = new Set([
   'introduction', 'related work', 'background', 'methodology', 'methods', 'method',
@@ -38,6 +41,9 @@ function tidySection(s) {
   if (FRONT_MATTER.test(text) || text.length < 100) return null;
   return { ...s, text };
 }
+
+// Heading text that is safe to show inside a question
+const headingUsable = (h) => /^[A-Za-z][A-Za-z0-9 ,&:'()\/.-]{2,90}$/.test(stripNumber(h)) && !/=|\bsection no\b/i.test(h);
 
 function classify(heading) {
   const t = stripNumber(heading);
@@ -72,22 +78,29 @@ function question(type, title, topic, generic) {
   }
 }
 
-// Long sections: split on paragraph boundaries into parts of at most `max` characters
-function splitParts(text, max) {
-  if (text.length <= max) return [text];
-  const parts = [];
+// Clip text to at most `max` characters, ending on a paragraph or sentence boundary.
+export function clipText(text, max) {
+  if (text.length <= max) return text;
   let cur = '';
   for (const p of text.split(/\n\n+/)) {
-    if (cur && cur.length + 2 + p.length > max) {
-      parts.push(cur);
-      cur = p;
-    } else {
-      cur = cur ? cur + '\n\n' + p : p;
-    }
+    if (cur && cur.length + 2 + p.length > max) break;
+    cur = cur ? cur + '\n\n' + p : p;
+    if (cur.length > max) break;
   }
-  if (cur) parts.push(cur);
-  return parts;
+  if (cur.length <= max && cur.length >= max * 0.4) return cur;
+
+  const slice = text.slice(0, max);
+  const cutAt = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('? '), slice.lastIndexOf('! '));
+  return cutAt >= max * 0.4 ? slice.slice(0, cutAt + 1) : slice.replace(/\s+\S*$/, '');
 }
+
+// Share of characters that are neither letters, digits, spaces nor ordinary punctuation
+export function symbolRatio(t) {
+  const bad = (t.match(/[^A-Za-z0-9\s.,;:'"()%\/\-–—’“”?!+°μ±×−]/g) || []).length;
+  return bad / Math.max(1, t.length);
+}
+
+const sentenceCount = (t) => (t.match(/[a-z]{2,}[.!?]["”’)\]]?(?:\s|$)/g) || []).length;
 
 // ---------- abbreviations ----------
 
@@ -130,6 +143,7 @@ function findAbbreviations(text) {
 
     const sentence = sentenceAt(text, m.index);
     if (sentence.length < 40 || sentence.length > 600) continue;
+    if (symbolRatio(sentence) > 0.03) continue;
     found.push({ abbr, letters, long, sentence });
   }
   return found;
@@ -154,6 +168,7 @@ export function generateRulePairs(cleaned, cfg, opts = {}) {
   });
 
   for (const raw of cleaned.sections) {
+    if (SKIP_SECTION.test(stripNumber(raw.title))) { skipped.push(`${raw.title} (not technical content)`); continue; }
     const s = tidySection(raw);
     if (!s) { skipped.push(`${raw.title} (front matter)`); continue; }
 
@@ -164,20 +179,22 @@ export function generateRulePairs(cleaned, cfg, opts = {}) {
     stack.push({ level: s.level, type });
 
     if (own === 'abstract') {
-      if (o.abstract) pairs.push(make('abstract', s.title, `Summarize the paper "${title}".`, s.text));
+      if (o.abstract) pairs.push(make('abstract', s.title, `Summarize the paper "${title}".`, clipText(s.text, r.maxOutputChars)));
     } else if (o.sections) {
-      if (s.text.length < r.minSectionChars) {
+      const answer = clipText(s.text, r.maxOutputChars);
+      if (answer.length < r.minSectionChars) {
         skipped.push(s.title);
+      } else if (symbolRatio(answer) > r.maxSymbolRatio || sentenceCount(answer) < 2) {
+        skipped.push(`${s.title} (equations or garbled text)`);
       } else {
         const pretty = prettyHeading(s.title);
         const topic = pretty.replace(/^(?:results?|discussions?|evaluation)\s+(?:from|of|on|for)\s+/i, '');
         const generic = GENERIC.has(stripNumber(s.title).toLowerCase());
-        const q = question(type, title, topic, generic);
-        const parts = splitParts(s.text, r.maxOutputChars);
-        parts.forEach((txt, i) => {
-          const input = parts.length > 1 ? `${q} (part ${i + 1} of ${parts.length})` : q;
-          pairs.push(make('section', s.title, input, txt));
-        });
+        // a heading that is not safe to show in a question becomes a generic question
+        const q = headingUsable(s.title)
+          ? question(type, title, topic, generic)
+          : question(type === 'default' ? 'method' : type, title, '', true);
+        pairs.push(make('section', s.title, q, answer));
       }
     }
 
@@ -197,7 +214,7 @@ export function generateRulePairs(cleaned, cfg, opts = {}) {
     if (o.sentences) {
       pairs.push(...sentencePairs(s, {
         title,
-        label: prettyHeading(s.title),
+        label: headingUsable(s.title) ? prettyHeading(s.title) : '',
         paperId: cleaned.paperId,
         schemaVersion: cfg.schemaVersion,
         limits: cfg.sentences,
