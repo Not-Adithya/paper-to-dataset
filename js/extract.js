@@ -119,6 +119,15 @@ export async function extractPdf(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjs.getDocument({ data }).promise;
 
+  // The PDF's own title field is usually cleaner than anything we can detect from the page
+  let metaTitle = null;
+  try {
+    const meta = await pdf.getMetadata();
+    metaTitle = (meta && meta.info && meta.info.Title) || null;
+  } catch {
+    metaTitle = null;
+  }
+
   const pages = [];
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);
@@ -146,6 +155,7 @@ export async function extractPdf(file) {
   return {
     paperId: file.name.replace(/\.pdf$/i, ''),
     source: { type: 'upload', fileName: file.name },
+    metaTitle,
     pages,
   };
 }
