@@ -8,6 +8,7 @@ const KNOWN = /^(?:\d+(?:\.\d+)*\.?\s+)?(?:abstract|introduction|related work|ba
 const CAPTION = /^(?:Table|Figure|Fig\.)\s*\d+\s*[:.]/;
 const TABLE_TOKEN = /^(?:[-–—]|\d+(?:\.\d+)?%?|\[\d+\])$/;
 const BULLET = /^[•●▪◦‣]/;
+const HEADING_BULLET = /^[■●▪◦•▶►]\s*/;
 const KEEP_HYPHEN = new Set(['non', 'self', 'cross', 'semi', 'high', 'low', 'long', 'short', 'state', 'end', 'real']);
 
 // patterns used only by the loose heading detector
@@ -16,14 +17,55 @@ const CHAPTER = /^(?:chapter|appendix)\s+(?:\d+|[IVX]+|[A-Z])\b/i;
 const LEADERS = /\.{4,}|(?:\.\s){4,}/;
 const SMALL_WORDS = new Set(['of', 'the', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'with', 'by', 'or', 'at', 'from', 'vs', 'via', 'as', 'is', 'are']);
 
+// equation / garbage detection
+const MATH_GLYPHS = /[\u239B-\u23BD\u0305\u2211\u220F\u222B]/;          // bracket pieces, overline, sum, product, integral
+const HEADING_BAD = /[{}\[\]÷=\u2211\u221A\u222B\u221E\u239B-\u23BD\u0305]|\(\d+\)$/;
+
+// text that is not part of the paper body
+const BACK_MATTER = new RegExp(
+  '(?:^|[\\s.])(?:Author Contributions?|Authors\\u2019? Contributions?|Funding|Institutional Review Board Statement|' +
+  'Informed Consent Statement|Data Availability(?: Statement)?|Conflicts? of Interest|' +
+  'Declarations? of (?:Competing|competing) (?:Interests?|interests?)|Declaration of Interest|' +
+  'CRediT authorship contribution statement|Ethics Statement|Acknowledg(?:e)?ments?|' +
+  'Supplementary Materials?|Disclosure Statement)\\s*:'
+);
+const REFS_INLINE = /\s(?:References|REFERENCES)\s+(?:\[?1\]?\.?\s+)[A-Z]/;
+
+// journal furniture that gets glued into body text
+const SCRUBS = [
+  /\b(?:Received|Revised|Accepted|Published|Available online)\s*:\s*\d{1,2}\s+[A-Z][a-z]+\s+\d{4}/g,
+  /\b[A-Z][A-Za-z.&]+(?:\s[A-Z][A-Za-z.&]+){0,3}\s+(?:19|20)\d{2},\s*\d{1,3},\s*\d{1,6}(?:\s+\d{1,3}\s+of\s+\d{1,3})?/g,
+  /\bCopyright\s*:\s*©[^.]*\.(?:\s*Licensee[^.]*\.)?/g,
+  /\bCitation:\s+(?:[A-Z][\p{L}'’-]+,\s+(?:[A-Z]\.-?\s?)+;?\s*){1,12}/gu,
+];
+
 // ---------- small helpers ----------
 
 function normalizeText(s) {
   return s
     .replace(/[ﬁﬂﬀﬃﬄ]/g, (c) => LIGATURES[c])
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, ' ')
     .replace(/\u00AD/g, '')
+    .replace(/\uFFFD/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const letterRatio = (t) => ((t.match(/[A-Za-z]/g) || []).length) / Math.max(1, t.length);
+
+// equation fragments and symbol soup
+function looksLikeMath(text) {
+  if (MATH_GLYPHS.test(text)) return true;
+  if (/^\(?\d{1,3}\)?$/.test(text) || /^\(\d{1,3}\)$/.test(text)) return true;      // bare equation numbers: "(2)"
+  if (NUMBERED.test(text)) return false;
+  if (/[{}÷=]/.test(text) && letterRatio(text) < 0.6) return true;                    // "t3[tL1÷tL2] arg{ max ... }, (1)"
+  return text.length >= 4 && letterRatio(text) < 0.4;
+}
+
+function headingOk(text) {
+  if (HEADING_BAD.test(text)) return false;
+  const core = text.replace(/^\d+(?:\.\d+)*\.?\s*/, '');
+  return core.length >= 2 && letterRatio(core) >= 0.55;
 }
 
 // Median font size, weighted by number of characters = the body text size
@@ -133,7 +175,7 @@ function joinLines(text, next, vocab) {
   const m1 = text.match(/([A-Za-z]+)-$/);
   if (!m1) return text + ' ' + next;
   const m2 = next.match(/^([a-z]+)/);
-  if (!m2) return text + next; // e.g. "Bag-of-" + "AudioWords": keep the hyphen, no space
+  if (!m2) return text + ' ' + next; // capital after a dangling hyphen = a break, not a split word
   const left = m1[1].toLowerCase();
   const right = m2[1];
   const joined = left + right;
@@ -160,6 +202,43 @@ function assemble(lines, vocab, indentOf, cfg) {
     prev = l;
   }
   return text.trim();
+}
+
+// Remove journal furniture glued into the text (dates, running headers, copyright, citation box)
+export function scrubInline(text) {
+  let t = text;
+  for (const re of SCRUBS) t = t.replace(re, ' ');
+  return t.replace(/[ \t]{2,}/g, ' ').replace(/ ?\n\n ?/g, '\n\n').trim();
+}
+
+// Cut author contributions / funding / declarations / reference list that run on after the last heading
+export function cutBackMatter(text) {
+  let cutAt = -1;
+  const a = BACK_MATTER.exec(text);
+  if (a) cutAt = a.index;
+  const b = REFS_INLINE.exec(text);
+  if (b && (cutAt === -1 || b.index < cutAt)) cutAt = b.index;
+  return cutAt === -1 ? { text, cut: false } : { text: text.slice(0, cutAt).trim(), cut: true };
+}
+
+// ---------- title ----------
+
+function validMetaTitle(t) {
+  if (!t) return false;
+  const s = String(t).trim();
+  if (s.length < 15 || s.length > 250) return false;
+  if (s.split(/\s+/).length < 3) return false;
+  if (/\.(pdf|docx?|tex|indd)\b|microsoft|untitled|^\s*(?:paper|manuscript|document|article)\b/i.test(s)) return false;
+  return true;
+}
+
+export function cleanTitle(t) {
+  if (!t) return null;
+  let s = String(t).replace(/\s+/g, ' ').trim();
+  s = s.replace(/(\w)-\s+(?=[A-Za-z])/g, '$1-');                     // "Wide- Temperature"
+  s = s.replace(/^(?:OPEN|materials|sensors|measurement)\s+(?=[A-Z])/i, '');   // journal name stuck in front
+  s = s.replace(/([a-z]{3,})[A-Z*†‡]$/, '$1');                      // trailing footnote marker
+  return s.trim() || null;
 }
 
 // ---------- loose heading detection (for papers/theses where headings are body-sized) ----------
@@ -213,9 +292,11 @@ function walk(kept, ctx, loose) {
   let stoppedAt = null;
 
   for (const l of kept) {
+    const txt = l.text.replace(HEADING_BULLET, '');
     const big = l.fontSize >= headingMin;
-    const numbered = NUMBERED.test(l.text);
-    const known = KNOWN.test(l.text);
+    const numbered = NUMBERED.test(txt);
+    const known = KNOWN.test(txt);
+    const ok = headingOk(txt);
 
     // Title: very large text on page 1, before any section
     if (!seenReal && l.page === firstPage && l.fontSize >= titleMin) {
@@ -224,25 +305,25 @@ function walk(kept, ctx, loose) {
     }
 
     // Second line of a wrapped heading
-    if (big && current.heading !== null && current.lines.length === 0 &&
-        !numbered && !known && l.text.length <= cfg.maxHeadingChars) {
-      current.heading += ' ' + l.text;
+    if (big && ok && current.heading !== null && current.lines.length === 0 &&
+        !numbered && !known && txt.length <= cfg.maxHeadingChars) {
+      current.heading += ' ' + txt;
       continue;
     }
 
     const strictHeading =
-      big && l.text.length <= cfg.maxHeadingChars &&
-      (numbered || known || (seenReal && !/[.!?:]$/.test(l.text)));
-    const isHeading = strictHeading || (loose && looseHeading(l.text, l.gap, medianGap, cfg));
+      big && ok && txt.length <= cfg.maxHeadingChars &&
+      (numbered || known || (seenReal && !/[.!?:]$/.test(txt)));
+    const isHeading = strictHeading || (loose && ok && looseHeading(txt, l.gap, medianGap, cfg));
 
     if (isHeading) {
       sections.push(current);
-      if (cfg.stopSections.includes(normalizeTitle(l.text))) {
-        stoppedAt = l.text;
+      if (cfg.stopSections.includes(normalizeTitle(txt))) {
+        stoppedAt = txt;
         current = null;
         break;
       }
-      current = { heading: l.text, lines: [] };
+      current = { heading: txt, lines: [] };
       seenReal = true;
       continue;
     }
@@ -272,8 +353,8 @@ export function cleanAndSection(extracted, cfg) {
   const repeated = findRepeatedKeys(all, extracted.pages.length, cfg);
 
   // 2. Drop junk lines (and remember what was dropped)
-  const stats = { repeated: 0, leaders: 0, smallFont: 0, captions: 0, tableRows: 0, tableHeaders: 0 };
-  const samples = { repeated: [], leaders: [], smallFont: [], captions: [], tableRows: [], tableHeaders: [] };
+  const stats = { repeated: 0, leaders: 0, smallFont: 0, math: 0, captions: 0, tableRows: 0, tableHeaders: 0 };
+  const samples = { repeated: [], leaders: [], smallFont: [], math: [], captions: [], tableRows: [], tableHeaders: [] };
   const drop = (kind, text) => {
     stats[kind]++;
     if (samples[kind].length < 6 && !samples[kind].includes(text)) samples[kind].push(text);
@@ -285,6 +366,7 @@ export function cleanAndSection(extracted, cfg) {
     if (repeated.has(repeatKey(l.text))) { drop('repeated', l.text); continue; }
     if (LEADERS.test(l.text)) { drop('leaders', l.text); continue; } // table-of-contents lines
     if (l.fontSize < body * cfg.smallFontRatio) { drop('smallFont', l.text); continue; }
+    if (looksLikeMath(l.text)) { drop('math', l.text); continue; }
     if (CAPTION.test(l.text)) {
       drop('captions', l.text);
       tableZone = l.text.startsWith('Table') ? cfg.tableZoneLines : 0;
@@ -322,22 +404,34 @@ export function cleanAndSection(extracted, cfg) {
   // 4. Build the output sections
   const out = [];
   const droppedSections = [];
+  let backMatterAt = null;
   for (const s of res.sections) {
     if (s.heading === null) continue; // front matter
-    const text = assemble(s.lines, vocab, indentOf, cfg);
-    if (cfg.dropSections.includes(normalizeTitle(s.heading))) { droppedSections.push(s.heading); continue; }
+    if (backMatterAt) { droppedSections.push(`${s.heading} (after back matter)`); continue; }
+
+    let text = scrubInline(assemble(s.lines, vocab, indentOf, cfg));
+    const cutRes = cutBackMatter(text);
+    text = cutRes.text;
+    if (cutRes.cut) backMatterAt = s.heading;
+
+    const t = normalizeTitle(s.heading);
+    if (cfg.dropSections.some((d) => t === d || t.startsWith(d))) { droppedSections.push(s.heading); continue; }
     if (text.length < cfg.minSectionChars) { droppedSections.push(`${s.heading} (too short)`); continue; }
     if (headingMode === 'pattern' && proseCount(text) < 2) { droppedSections.push(`${s.heading} (no prose)`); continue; }
     out.push({ title: s.heading, level: headingLevel(s.heading), text });
   }
 
+  const detected = res.titleLines.join(' ') || null;
+  const title = cleanTitle(validMetaTitle(extracted.metaTitle) ? extracted.metaTitle : detected);
+
   return {
     paperId: extracted.paperId,
     source: extracted.source,
-    title: res.titleLines.join(' ') || null,
+    title,
     sections: out,
     debug: {
       mode: headingMode,
+      titleFrom: validMetaTitle(extracted.metaTitle) ? 'pdf metadata' : 'page text',
       bodyFontSize: body,
       headingMin,
       medianGap,
@@ -346,6 +440,7 @@ export function cleanAndSection(extracted, cfg) {
       stats,
       samples,
       droppedSections,
+      backMatterAt,
       stoppedAt: res.stoppedAt,
     },
   };
