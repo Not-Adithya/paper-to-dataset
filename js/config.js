@@ -2,8 +2,9 @@ export const CONFIG = {
   schemaVersion: 2,
 
   rules: {
-    minSectionChars: 300,   // sections shorter than this get no pair
-    maxOutputChars: 5000,   // longer sections are split into parts
+    minSectionChars: 300,    // sections shorter than this get no pair
+    maxOutputChars: 3000,    // a section answer is clipped to this length (first part only)
+    maxSymbolRatio: 0.03,    // sections with more equation/symbol junk than this are skipped
   },
 
   sentences: {
@@ -26,7 +27,14 @@ export const CONFIG = {
     tableZoneLines: 20,
     indentMin: 4,
     indentMax: 30,
-    dropSections: ['ccs concepts', 'keywords', 'index terms', 'acknowledgments', 'acknowledgements', 'acknowledgment'],
+    // a section is dropped when its heading equals or starts with one of these
+    dropSections: [
+      'ccs concepts', 'keywords', 'index terms',
+      'acknowledg', 'author contributions', 'authors contributions', 'funding', 'data availability',
+      'conflict of interest', 'conflicts of interest', 'institutional review board', 'informed consent',
+      'declaration', 'supplementary', 'abbreviations', 'ethics', 'publisher', 'disclosure',
+      'credit', 'competing', 'author information',
+    ],
     stopSections: ['references', 'bibliography'],
   },
 };
