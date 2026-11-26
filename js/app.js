@@ -3,6 +3,7 @@ import { extractPdf } from './extract.js';
 import { cleanAndSection } from './clean.js';
 import { generateRulePairs } from './rules.js';
 import { toJson, toJsonl } from './export.js';
+import { splitPairs } from './split.js';
 
 const $ = (id) => document.getElementById(id);
 const fileInput = $('pdfFile');
@@ -12,8 +13,11 @@ const barFill = $('barFill');
 const progressText = $('progressText');
 const statusEl = $('status');
 const fileList = $('fileList');
-const dlJson = $('dlJson');
-const dlJsonl = $('dlJsonl');
+const dlTrain = $('dlTrain');
+const dlVal = $('dlVal');
+const valPercent = $('valPercent');
+const fileFormat = $('fileFormat');
+const splitInfo = $('splitInfo');
 const includeMeta = $('includeMeta');
 const preview = $('preview');
 const useSections = $('useSections');
@@ -26,6 +30,7 @@ const SENTENCE_RULES = new Set(['number', 'definition', 'reason']);
 let allPairs = [];
 let fileCount = 0;
 let stopRequested = false;
+let split = { train: [], validation: [], by: 'none' };
 
 // ---------- preview filter (created here, so index.html needs no change) ----------
 const filterBar = document.createElement('label');
@@ -68,11 +73,6 @@ function setStatus(text, isError = false) {
   statusEl.className = isError ? 'error' : '';
 }
 
-function setDownloads(on) {
-  dlJson.disabled = !on;
-  dlJsonl.disabled = !on;
-}
-
 function download(name, text, mime) {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
   const a = document.createElement('a');
@@ -84,6 +84,46 @@ function download(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ---------- train / validation split ----------
+const readFraction = () => {
+  const n = parseFloat(valPercent.value);
+  return Number.isFinite(n) ? Math.min(50, Math.max(0, n)) / 100 : 0.1;
+};
+
+function updateSplit() {
+  if (!allPairs.length) {
+    splitInfo.textContent = '';
+    dlTrain.disabled = true;
+    dlVal.disabled = true;
+    return;
+  }
+  split = splitPairs(allPairs, readFraction());
+  const where = { section: 'by section', paper: 'by paper', pair: 'pair by pair', none: '' }[split.by];
+  splitInfo.textContent = split.validation.length
+    ? `Training: ${split.train.length} pairs | Validation: ${split.validation.length} pairs (split ${where}, so the validation text is never in the training file)`
+    : `Training: ${split.train.length} pairs | No validation file (set a share above 0%)`;
+  dlTrain.disabled = !split.train.length;
+  dlVal.disabled = !split.validation.length;
+}
+
+valPercent.addEventListener('input', updateSplit);
+
+function saveFile(kind) {
+  const list = kind === 'train' ? split.train : split.validation;
+  if (!list.length) return;
+  const jsonl = fileFormat.value === 'jsonl';
+  const body = jsonl ? toJsonl(list, includeMeta.checked) : toJson(list, includeMeta.checked);
+  download(
+    `dataset_${fileCount}papers_${kind === 'train' ? 'train' : 'validation'}_${list.length}pairs.${jsonl ? 'jsonl' : 'json'}`,
+    body,
+    jsonl ? 'application/jsonl' : 'application/json'
+  );
+}
+
+dlTrain.addEventListener('click', () => saveFile('train'));
+dlVal.addEventListener('click', () => saveFile('validation'));
+
+// ---------- preview ----------
 // Mixed view: up to 12 sentence-level pairs first, then fill with the rest
 function pickMixed(list) {
   const sent = list.filter((p) => SENTENCE_RULES.has(p.meta.rule));
@@ -167,7 +207,7 @@ async function runBatch(files) {
   fileList.textContent = '';
   preview.textContent = '';
   filterBar.hidden = true;
-  setDownloads(false);
+  updateSplit();
   setStatus('');
   progressWrap.hidden = false;
   fileInput.disabled = true;
@@ -222,8 +262,8 @@ async function runBatch(files) {
   if (allPairs.length) {
     rebuildFilter(allPairs);
     renderPreview(allPairs);
-    setDownloads(true);
   }
+  updateSplit();
 }
 
 fileInput.addEventListener('change', () => {
@@ -246,14 +286,4 @@ stopBtn.addEventListener('click', () => {
   stopRequested = true;
   stopBtn.disabled = true;
   stopBtn.textContent = 'Stopping after this file...';
-});
-
-dlJson.addEventListener('click', () => {
-  if (!allPairs.length) return;
-  download(`dataset_${fileCount}papers_${allPairs.length}pairs.json`, toJson(allPairs, includeMeta.checked), 'application/json');
-});
-
-dlJsonl.addEventListener('click', () => {
-  if (!allPairs.length) return;
-  download(`dataset_${fileCount}papers_${allPairs.length}pairs.jsonl`, toJsonl(allPairs, includeMeta.checked), 'application/jsonl');
 });
