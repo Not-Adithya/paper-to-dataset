@@ -25,11 +25,25 @@
   <p id="status"></p>
   <ul id="fileList"></ul>
 
-  <div>
-    <button id="dlJson" disabled>Download JSON</button>
-    <button id="dlJsonl" disabled>Download JSONL</button>
+  <div class="checks">
+    <label class="check">Validation share (%)
+      <input type="number" id="valPercent" value="10" min="0" max="50" step="1" class="narrow">
+    </label>
+    <label class="check">Format
+      <select id="fileFormat">
+        <option value="json">JSON</option>
+        <option value="jsonl">JSONL</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="includeMeta"> Include metadata (source paper, rule, section)</label>
   </div>
-  <label class="check"><input type="checkbox" id="includeMeta"> Include metadata (source paper, rule, section)</label>
+
+  <p id="splitInfo"></p>
+
+  <div>
+    <button id="dlTrain" disabled>Download training file</button>
+    <button id="dlVal" disabled>Download validation file</button>
+  </div>
 
   <div id="preview"></div>
 
