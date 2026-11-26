@@ -26,3 +26,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .pair p { white-space: pre-wrap; margin: 0; padding: 0 0.75rem 0.75rem; font-size: 0.88rem; max-height: 320px; overflow: auto; }
 .tag { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.5rem; border-radius: 4px; background: var(--accent); color: #fff; margin-right: 0.4rem; text-transform: uppercase; }
 .checks { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+
+
+.narrow { width: 4.5rem; }
+#splitInfo { color: var(--muted); font-size: 0.9rem; margin: 0.25rem 0; }
+select { padding: 0.25rem; }
